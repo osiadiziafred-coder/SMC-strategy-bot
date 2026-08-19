@@ -18,12 +18,15 @@ If the conditions do not align, the EA does nothing.
 
 ## Installation
 
-1. Open MetaTrader 5 → **File → Open Data Folder**.
-2. Copy the folder `MQL5/Experts/XAUUSDm_H1M5_SMC` into `MQL5/Experts/`.
-3. Restart MT5 or refresh Navigator.
-4. Open `XAUUSDm_H1M5_SMC.mq5` in MetaEditor (`F4`) and press **Compile**.
-5. Attach the EA to an **XAUUSDm** chart (any chart timeframe is fine; analysis always uses H1 and M5).
-6. Enable **Algo Trading**.
+**Easiest (one file):** copy `MQL5/Experts/XAUUSDm_H1M5_SMC.mq5` into MetaEditor.
+
+1. In MT5 press `F4` to open MetaEditor.
+2. File → New → Expert Advisor (template) → name it `XAUUSDm_H1M5_SMC`.
+3. Delete the template code and paste the full contents of `MQL5/Experts/XAUUSDm_H1M5_SMC.mq5`.
+4. Press **Compile** (`F7`). It should report 0 errors.
+5. Attach the EA to an **XAUUSDm** chart and enable **Algo Trading**.
+
+**Alternative (modular folder):** copy `MQL5/Experts/XAUUSDm_H1M5_SMC/` into `MQL5/Experts/` and compile `XAUUSDm_H1M5_SMC.mq5` inside that folder.
 
 If XAUUSDm cannot be found, the EA shows an error and will not place trades.
 
