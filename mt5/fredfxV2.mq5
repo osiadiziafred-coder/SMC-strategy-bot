@@ -247,17 +247,6 @@ string TfTag(const ENUM_TIMEFRAMES tf)
    return("TF");
   }
 
-ENUM_TIMEFRAMES TfFromComment(const string cmt)
-  {
-   if(StringFind(cmt, "|M5|")  >= 0)
-      return(PERIOD_M5);
-   if(StringFind(cmt, "|M15|") >= 0)
-      return(PERIOD_M15);
-   if(StringFind(cmt, "|H1|")  >= 0)
-      return(PERIOD_H1);
-   return(PERIOD_CURRENT);
-  }
-
 string RiskKey(const ulong ticket)
   {
    return("FFV2R_" + IntegerToString((long)ticket));
@@ -735,7 +724,10 @@ bool BuildSetup(const ENUM_TIMEFRAMES tf, const MqlRates &r[], const int n,
    double hi = r[last].high;
 
    bool haveOb = false, haveFvg = false;
-   FFZone ob, fvg;
+   FFZone ob;
+   FFZone fvg;
+   ZeroMemory(ob);
+   ZeroMemory(fvg);
    double bestOb = 1e100, bestFvg = 1e100;
    for(int i = 0; i < nob; i++)
      {
@@ -770,7 +762,7 @@ bool BuildSetup(const ENUM_TIMEFRAMES tf, const MqlRates &r[], const int n,
    if(!haveOb && !haveFvg)
       return(false);
 
-   double sl;
+   double sl = 0.0;
    double pad = StopPad();
    if(bias == FF_BULL)
      {
@@ -869,7 +861,7 @@ void ScanAndTrade()
      }
 
    FFSetup dummy;
-   bool h1Has;
+   bool h1Has = false;
    int h1Bias = FF_NONE;
    AnalyzeTf(PERIOD_H1, FF_NONE, dummy, h1Has, h1Bias);
    if(h1Bias == FF_NONE)
@@ -890,8 +882,9 @@ void ScanAndTrade()
          continue;
 
       FFSetup setup;
-      bool has;
-      int biasIgnored;
+      ZeroMemory(setup);
+      bool has = false;
+      int biasIgnored = FF_NONE;
       AnalyzeTf(tfs[t], h1Bias, setup, has, biasIgnored);
       if(!has)
          continue;
