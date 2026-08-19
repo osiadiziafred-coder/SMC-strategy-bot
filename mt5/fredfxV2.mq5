@@ -1,18 +1,19 @@
 //+------------------------------------------------------------------+
 //|                                                    fredfxV2.mq5  |
-//| SMC Expert Advisor for XAUUSDM                                   |
+//| SMC Expert Advisor for XAUUSDm                                   |
 //| Order Blocks + BOS + MSS + CHoCH + FVG | M5 M15 H1 | RR 1:2     |
 //+------------------------------------------------------------------+
 #property copyright "fredfxV2"
 #property link      ""
 #property version   "2.00"
-#property description "fredfxV2 — SMC robot for XAUUSDM. H1 bias, M5/M15/H1 entries,"
+#property description "fredfxV2 — SMC robot for XAUUSDm. H1 bias, M5/M15/H1 entries,"
 #property description "Order Block + FVG retest, 1:2 RR, trail XL up, 0.01 lot per $300."
 
 #include <Trade/Trade.mqh>
 
 //--- inputs
 input group "=== fredfxV2 core ==="
+input string            InpSymbol            = "XAUUSDm";
 input string            InpCommentPrefix     = "fredfxV2";
 input ulong             InpMagic             = 20250819;
 input int               InpMaxPositions      = 3;
@@ -104,6 +105,7 @@ struct FFSetup
   };
 
 CTrade         g_trade;
+string         g_symbol     = "XAUUSDm";
 datetime       g_lastBarM5  = 0;
 datetime       g_lastBarM15 = 0;
 datetime       g_lastBarH1  = 0;
@@ -112,23 +114,34 @@ int            g_digits     = 2;
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   g_digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+   g_symbol = InpSymbol;
+   StringTrimLeft(g_symbol);
+   StringTrimRight(g_symbol);
+   if(StringLen(g_symbol) < 1)
+      g_symbol = "XAUUSDm";
+   if(!SymbolSelect(g_symbol, true))
+     {
+      Print("fredfxV2: cannot select ", g_symbol, " — add it to Market Watch.");
+      return(INIT_FAILED);
+     }
+
+   g_digits = (int)SymbolInfoInteger(g_symbol, SYMBOL_DIGITS);
    g_trade.SetExpertMagicNumber(InpMagic);
    g_trade.SetDeviationInPoints((uint)InpSlippagePoints);
    g_trade.SetAsyncMode(false);
    ApplyFilling();
 
    Print("====================================================");
-   Print("fredfxV2  SMC XAUUSDM robot");
-   Print("Attach to XAUUSDM (or gold). Timeframes used: M5 M15 H1");
+   Print("fredfxV2  SMC XAUUSDm robot");
+   Print("Symbol ", g_symbol, " | Timeframes used: M5 M15 H1");
    Print("RR 1:", DoubleToString(InpRiskReward, 0),
          " | max ", InpMaxPositions, " positions | 0.01 lot per $300");
    Print("Trail XL up at ", DoubleToString(InpTrailActivateR, 1), "R  | news: always trade");
    Print("====================================================");
    if(AccountInfoInteger(ACCOUNT_MARGIN_MODE) != ACCOUNT_MARGIN_MODE_RETAIL_HEDGING)
       Print("Warning: this account is not hedging. fredfxV2 opens up to 3 separate positions — use a hedging account.");
-   if(StringFind(Symbol(), "XAU") < 0)
-      Print("Warning: chart is ", _Symbol, " — fredfxV2 was designed for XAUUSDM.");
+   if(StringFind(g_symbol, "XAU") < 0)
+      Print("Warning: trading ", g_symbol, " — fredfxV2 was designed for XAUUSDm.");
    return(INIT_SUCCEEDED);
   }
 
@@ -160,7 +173,7 @@ void OnTick()
 //+------------------------------------------------------------------+
 void ApplyFilling()
   {
-   long mode = SymbolInfoInteger(_Symbol, SYMBOL_FILLING_MODE);
+   long mode = SymbolInfoInteger(g_symbol, SYMBOL_FILLING_MODE);
    if((mode & SYMBOL_FILLING_IOC) == SYMBOL_FILLING_IOC)
       g_trade.SetTypeFilling(ORDER_FILLING_IOC);
    else if((mode & SYMBOL_FILLING_FOK) == SYMBOL_FILLING_FOK)
@@ -171,7 +184,7 @@ void ApplyFilling()
 
 bool IsNewBar(ENUM_TIMEFRAMES tf, datetime &saved)
   {
-   datetime t = iTime(_Symbol, tf, 0);
+   datetime t = iTime(g_symbol, tf, 0);
    if(t == 0)
       return(false);
    if(saved == 0)
@@ -200,9 +213,9 @@ double LotSize()
    if(steps >= 1)
       lots = MathMax(InpMinLot, steps * InpLotPer300);
 
-   double vmin = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
-   double vmax = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
-   double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   double vmin = SymbolInfoDouble(g_symbol, SYMBOL_VOLUME_MIN);
+   double vmax = SymbolInfoDouble(g_symbol, SYMBOL_VOLUME_MAX);
+   double step = SymbolInfoDouble(g_symbol, SYMBOL_VOLUME_STEP);
    if(step <= 0.0)
       step = 0.01;
    lots = MathMax(vmin, MathMin(vmax, lots));
@@ -215,8 +228,8 @@ double LotSize()
 
 double StopPad()
   {
-   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-   int stops = (int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   double point = SymbolInfoDouble(g_symbol, SYMBOL_POINT);
+   int stops = (int)SymbolInfoInteger(g_symbol, SYMBOL_TRADE_STOPS_LEVEL);
    return(MathMax(InpZonePad, stops * point));
   }
 
@@ -288,7 +301,7 @@ ulong LatestOurPosition()
       ulong ticket = PositionGetTicket(i);
       if(ticket == 0)
          continue;
-      if(PositionGetString(POSITION_SYMBOL) != _Symbol)
+      if(PositionGetString(POSITION_SYMBOL) != g_symbol)
          continue;
       if((ulong)PositionGetInteger(POSITION_MAGIC) != InpMagic)
          continue;
@@ -310,7 +323,7 @@ int CountOurPositions()
       ulong ticket = PositionGetTicket(i);
       if(ticket == 0)
          continue;
-      if(PositionGetString(POSITION_SYMBOL) != _Symbol)
+      if(PositionGetString(POSITION_SYMBOL) != g_symbol)
          continue;
       if((ulong)PositionGetInteger(POSITION_MAGIC) != InpMagic)
          continue;
@@ -327,7 +340,7 @@ bool HasTfPosition(const ENUM_TIMEFRAMES tf)
       ulong ticket = PositionGetTicket(i);
       if(ticket == 0)
          continue;
-      if(PositionGetString(POSITION_SYMBOL) != _Symbol)
+      if(PositionGetString(POSITION_SYMBOL) != g_symbol)
          continue;
       if((ulong)PositionGetInteger(POSITION_MAGIC) != InpMagic)
          continue;
@@ -339,7 +352,7 @@ bool HasTfPosition(const ENUM_TIMEFRAMES tf)
 
 int TradesToday()
   {
-   datetime from = iTime(_Symbol, PERIOD_D1, 0);
+   datetime from = iTime(g_symbol, PERIOD_D1, 0);
    if(from <= 0)
       from = TimeCurrent() - 86400;
    if(!HistorySelect(from, TimeCurrent()))
@@ -351,7 +364,7 @@ int TradesToday()
       ulong deal = HistoryDealGetTicket(i);
       if(deal == 0)
          continue;
-      if(HistoryDealGetString(deal, DEAL_SYMBOL) != _Symbol)
+      if(HistoryDealGetString(deal, DEAL_SYMBOL) != g_symbol)
          continue;
       if((ulong)HistoryDealGetInteger(deal, DEAL_MAGIC) != InpMagic)
          continue;
@@ -367,14 +380,14 @@ int TradesToday()
 //+------------------------------------------------------------------+
 void TrailOpenPositions()
   {
-   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double bid = SymbolInfoDouble(g_symbol, SYMBOL_BID);
+   double ask = SymbolInfoDouble(g_symbol, SYMBOL_ASK);
    for(int i = PositionsTotal() - 1; i >= 0; i--)
      {
       ulong ticket = PositionGetTicket(i);
       if(ticket == 0)
          continue;
-      if(PositionGetString(POSITION_SYMBOL) != _Symbol)
+      if(PositionGetString(POSITION_SYMBOL) != g_symbol)
          continue;
       if((ulong)PositionGetInteger(POSITION_MAGIC) != InpMagic)
          continue;
@@ -421,9 +434,9 @@ void TrailOpenPositions()
 
       newSl = NP(newSl);
       bool better = false;
-      if(type == POSITION_TYPE_BUY && newSl > sl + SymbolInfoDouble(_Symbol, SYMBOL_POINT) * 0.5)
+      if(type == POSITION_TYPE_BUY && newSl > sl + SymbolInfoDouble(g_symbol, SYMBOL_POINT) * 0.5)
          better = true;
-      if(type == POSITION_TYPE_SELL && (sl == 0.0 || newSl < sl - SymbolInfoDouble(_Symbol, SYMBOL_POINT) * 0.5))
+      if(type == POSITION_TYPE_SELL && (sl == 0.0 || newSl < sl - SymbolInfoDouble(g_symbol, SYMBOL_POINT) * 0.5))
          better = true;
       if(!better)
         {
@@ -442,7 +455,7 @@ void TrailOpenPositions()
 bool LoadRates(const ENUM_TIMEFRAMES tf, MqlRates &rates[])
   {
    int want = MathMax(InpBarsToScan, InpSwingLength * 8 + 20);
-   int copied = CopyRates(_Symbol, tf, 1, want, rates);   // skip forming bar
+   int copied = CopyRates(g_symbol, tf, 1, want, rates);   // skip forming bar
    if(copied < InpSwingLength * 2 + 10)
       return(false);
    ArraySetAsSeries(rates, false);                         // 0 = oldest
@@ -859,7 +872,7 @@ void ScanAndTrade()
   {
    if(InpMaxSpreadPoints > 0)
      {
-      long spread = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
+      long spread = SymbolInfoInteger(g_symbol, SYMBOL_SPREAD);
       if(spread > InpMaxSpreadPoints)
          return;
      }
@@ -917,8 +930,8 @@ void ScanAndTrade()
 
 bool OpenSetup(const FFSetup &setup)
   {
-   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double bid = SymbolInfoDouble(g_symbol, SYMBOL_BID);
+   double ask = SymbolInfoDouble(g_symbol, SYMBOL_ASK);
    bool isBuy = (setup.dir == FF_BULL);
    double fill = isBuy ? ask : bid;
    double sl   = setup.sl;
@@ -941,9 +954,9 @@ bool OpenSetup(const FFSetup &setup)
    ApplyFilling();
    bool ok;
    if(isBuy)
-      ok = g_trade.Buy(lots, _Symbol, 0.0, sl, tp, cmt);
+      ok = g_trade.Buy(lots, g_symbol, 0.0, sl, tp, cmt);
    else
-      ok = g_trade.Sell(lots, _Symbol, 0.0, sl, tp, cmt);
+      ok = g_trade.Sell(lots, g_symbol, 0.0, sl, tp, cmt);
 
    if(!ok)
      {
@@ -957,9 +970,9 @@ bool OpenSetup(const FFSetup &setup)
         {
          g_trade.SetTypeFilling(fills[i]);
          if(isBuy)
-            ok = g_trade.Buy(lots, _Symbol, 0.0, sl, tp, cmt);
+            ok = g_trade.Buy(lots, g_symbol, 0.0, sl, tp, cmt);
          else
-            ok = g_trade.Sell(lots, _Symbol, 0.0, sl, tp, cmt);
+            ok = g_trade.Sell(lots, g_symbol, 0.0, sl, tp, cmt);
         }
      }
    if(!ok)
@@ -979,7 +992,7 @@ bool OpenSetup(const FFSetup &setup)
 
 void Dashboard()
   {
-   string s = "fredfxV2  " + _Symbol + "\n";
+   string s = "fredfxV2  " + g_symbol + "\n";
    s += "Lots: " + DoubleToString(LotSize(), 2);
    s += "   open: " + IntegerToString(CountOurPositions()) + "/" + IntegerToString(InpMaxPositions);
    s += "   today: " + IntegerToString(TradesToday()) + "\n";

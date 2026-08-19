@@ -12,7 +12,7 @@ from smc_robot.robot import strategy_summary
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="smc-robot",
-        description="SMC multi-timeframe robot for XAUUSDM (M5 / M15 / H1).",
+        description="SMC multi-timeframe robot for XAUUSDm (M5 / M15 / H1).",
     )
     parser.add_argument(
         "command",
@@ -40,7 +40,7 @@ def main(argv: list[str] | None = None) -> int:
         result = run_backtest(config, bars=args.bars)
         print(strategy_summary(config))
         print()
-        print("Backtest on synthetic XAUUSDM path")
+        print("Backtest on synthetic XAUUSDm path")
         print(f"  start  : ${result.starting_balance:.2f}")
         print(f"  end    : ${result.ending_balance:.2f}")
         print(f"  profit : ${result.profit:.2f}")

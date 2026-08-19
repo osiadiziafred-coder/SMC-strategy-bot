@@ -1,4 +1,4 @@
-"""Synthetic XAUUSDM candles + bar-by-bar paper backtest."""
+"""Synthetic XAUUSDm candles + bar-by-bar paper backtest."""
 
 from __future__ import annotations
 
