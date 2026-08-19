@@ -1,0 +1,12 @@
+# Compiled MetaTrader binaries
+*.ex5
+*.ex4
+*.exp
+*.log
+
+# Tester / local junk
+*.set
+*.dat
+.DS_Store
+__pycache__/
+*.pyc
