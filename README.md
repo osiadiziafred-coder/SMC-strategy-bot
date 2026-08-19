@@ -29,7 +29,19 @@ This is not financial advice. Gold is volatile; demo-test on MT5 before going li
 
 BOS is continuation (break with the trend). CHoCH is the first break against the trend. MSS is a CHoCH that prints with displacement.
 
-## Quick start
+## MetaTrader 5 — paste **fredfxV2** into MetaEditor
+
+Python cannot run inside MetaEditor. Use the MQL5 Expert Advisor [`mt5/fredfxV2.mq5`](mt5/fredfxV2.mq5).
+
+1. Open **MetaEditor** (press F4 in MT5).
+2. **File → New → Expert Advisor (template)**. Name it **`fredfxV2`**.
+3. Delete the generated template and paste the full file `mt5/fredfxV2.mq5`.
+4. Press **F7** (Compile). You want **0 errors**.
+5. In MT5 open an **XAUUSDM** chart (any timeframe; the EA reads M5, M15, and H1 itself).
+6. Drag **fredfxV2** onto the chart. Tick **Allow Algo Trading**.
+7. Turn **Algo Trading** ON in the toolbar. Use a **hedging** account so three positions can stay open.
+
+## Python engine (paper / tests)
 
 ```bash
 python -m pip install -e ".[dev]"
