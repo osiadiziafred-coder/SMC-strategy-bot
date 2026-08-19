@@ -1,0 +1,49 @@
+symbol: XAUUSDM
+timeframes:
+  - M5
+  - M15
+  - H1
+htf_bias: H1
+entry_timeframes:
+  - M5
+  - M15
+  - H1
+
+# Risk: reward 1:2  (SL : TP)
+risk_reward: 2.0
+max_positions: 3
+
+# Lot sizing: start from any balance at 0.01; every extra $300 adds 0.01
+lot_per_300_usd: 0.01
+min_lot: 0.01
+lot_step: 0.01
+
+# Trailing stop (XL): after 1R profit, move SL to breakeven, then trail it up with price
+trail_activate_r: 1.0
+trail_to_breakeven: true
+breakeven_buffer: 0.05
+trail_distance_r: 1.0
+
+# SMC detection
+swing_length: 5
+fvg_min_size: 0.20
+ob_lookback: 12
+displacement_body_atr: 1.2
+min_confluence_score: 55
+close_break: true
+
+# Trading session
+trade_news: true
+allow_multiple_trades_per_day: true
+one_position_per_timeframe: true
+max_trades_per_day: 24
+
+# Broker
+magic: 20250819
+deviation_points: 30
+contract_size: 100.0
+point: 0.01
+
+# Paper / backtest
+starting_balance: 300.0
+spread: 0.30

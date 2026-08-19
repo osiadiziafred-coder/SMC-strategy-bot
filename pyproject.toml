@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smc-robot"
+version = "0.1.0"
+description = "SMC (Smart Money Concepts) multi-timeframe robot for XAUUSDM"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26.0",
+    "pandas>=2.2.0",
+    "pyyaml>=6.0.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
+mt5 = ["MetaTrader5>=5.0.45"]
+
+[project.scripts]
+smc-robot = "smc_robot.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["tests"]
