@@ -133,7 +133,7 @@ class SMCRobot:
 def strategy_summary(config: RobotConfig | None = None) -> str:
     cfg = config or RobotConfig()
     return f"""
-SMC XAUUSDm Robot — strategy summary
+SMC XAUUSDc Robot — strategy summary
 ====================================
 Symbol            : {cfg.symbol}
 Timeframes        : {", ".join(cfg.timeframes)}

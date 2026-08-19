@@ -1,6 +1,6 @@
-# SMC XAUUSDm Robot
+# SMC XAUUSDc Robot
 
-Python Smart Money Concepts (SMC) robot for **XAUUSDm**. It reads **M5, M15, and H1**, takes up to **three positions** (one per timeframe), uses a **1:2 stop-to-target**, and walks the stop (XL) **up** as the trade moves in profit.
+Python Smart Money Concepts (SMC) robot for **XAUUSDc**. It reads **M5, M15, and H1**, takes up to **three positions** (one per timeframe), uses a **1:2 stop-to-target**, and walks the stop (XL) **up** as the trade moves in profit.
 
 This is not financial advice. Gold is volatile; demo-test on MT5 before going live.
 
@@ -8,7 +8,7 @@ This is not financial advice. Gold is volatile; demo-test on MT5 before going li
 
 | Rule | How the robot does it |
 | --- | --- |
-| Market | XAUUSDm |
+| Market | XAUUSDc |
 | Timeframes | M5, M15, H1. H1 sets bias; all three can enter |
 | Concepts | Order Blocks, BOS, MSS, CHoCH, Fair Value Gaps |
 | Positions | Max **3**, one per timeframe |
@@ -37,7 +37,7 @@ Python cannot run inside MetaEditor. Use the MQL5 Expert Advisor [`mt5/fredfxV2.
 2. **File → New → Expert Advisor (template)**. Name it **`fredfxV2`**.
 3. Delete the generated template and paste the full file `mt5/fredfxV2.mq5`.
 4. Press **F7** (Compile). You want **0 errors**.
-5. In MT5 open an **XAUUSDm** chart (any timeframe; the EA reads M5, M15, and H1 itself).
+5. In MT5 open an **XAUUSDc** chart (any timeframe; the EA reads M5, M15, and H1 itself).
 6. Drag **fredfxV2** onto the chart. Tick **Allow Algo Trading**.
 7. Turn **Algo Trading** ON in the toolbar. Use a **hedging** account so three positions can stay open.
 
@@ -56,7 +56,7 @@ Paper scan on synthetic gold candles:
 python -m smc_robot paper
 ```
 
-Live MT5 (Windows, terminal running, XAUUSDm in Market Watch):
+Live MT5 (Windows, terminal running, XAUUSDc in Market Watch):
 
 ```bash
 python -m pip install -e ".[mt5]"
@@ -74,5 +74,5 @@ src/smc_robot/
   risk.py        $300 lot formula, 1:2 RR, trailing XL
   robot.py       3-position orchestrator
   broker/        paper + MetaTrader 5
-  backtest.py    synthetic XAUUSDm path
+  backtest.py    synthetic XAUUSDc path
 ```

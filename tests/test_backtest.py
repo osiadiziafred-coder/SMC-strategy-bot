@@ -29,5 +29,5 @@ def test_backtest_completes_and_respects_max_positions():
 def test_load_config_and_summary_mention_smc_parts():
     cfg = load_config("config.yaml")
     text = strategy_summary(cfg)
-    for token in ("Order Block", "BOS", "MSS", "CHoCH", "FVG", "XAUUSDm", "1 : 2"):
+    for token in ("Order Block", "BOS", "MSS", "CHoCH", "FVG", "XAUUSDc", "1 : 2"):
         assert token in text

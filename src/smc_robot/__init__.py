@@ -1,4 +1,4 @@
-"""SMC (Smart Money Concepts) multi-timeframe robot for XAUUSDm."""
+"""SMC (Smart Money Concepts) multi-timeframe robot for XAUUSDc."""
 
 from smc_robot.config import RobotConfig, load_config
 

@@ -12,7 +12,7 @@ DEFAULT_TIMEFRAMES = ("M5", "M15", "H1")
 
 @dataclass(slots=True)
 class RobotConfig:
-    symbol: str = "XAUUSDm"
+    symbol: str = "XAUUSDc"
     timeframes: tuple[str, ...] = DEFAULT_TIMEFRAMES
     htf_bias: str = "H1"
     entry_timeframes: tuple[str, ...] = DEFAULT_TIMEFRAMES

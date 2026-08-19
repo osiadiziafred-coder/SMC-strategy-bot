@@ -1,19 +1,19 @@
 //+------------------------------------------------------------------+
 //|                                                    fredfxV2.mq5  |
-//| SMC Expert Advisor for XAUUSDm                                   |
+//| SMC Expert Advisor for XAUUSDc                                   |
 //| Order Blocks + BOS + MSS + CHoCH + FVG | M5 M15 H1 | RR 1:2     |
 //+------------------------------------------------------------------+
 #property copyright "fredfxV2"
 #property link      ""
 #property version   "2.00"
-#property description "fredfxV2 — SMC robot for XAUUSDm. H1 bias, M5/M15/H1 entries,"
+#property description "fredfxV2 — SMC robot for XAUUSDc. H1 bias, M5/M15/H1 entries,"
 #property description "Order Block + FVG retest, 1:2 RR, trail XL up, 0.01 lot per $300."
 
 #include <Trade/Trade.mqh>
 
 //--- inputs
 input group "=== fredfxV2 core ==="
-input string            InpSymbol            = "XAUUSDm";
+input string            InpSymbol            = "XAUUSDc";
 input string            InpCommentPrefix     = "fredfxV2";
 input ulong             InpMagic             = 20250819;
 input int               InpMaxPositions      = 3;
@@ -105,7 +105,7 @@ struct FFSetup
   };
 
 CTrade         g_trade;
-string         g_symbol     = "XAUUSDm";
+string         g_symbol     = "XAUUSDc";
 datetime       g_lastBarM5  = 0;
 datetime       g_lastBarM15 = 0;
 datetime       g_lastBarH1  = 0;
@@ -118,7 +118,7 @@ int OnInit()
    StringTrimLeft(g_symbol);
    StringTrimRight(g_symbol);
    if(StringLen(g_symbol) < 1)
-      g_symbol = "XAUUSDm";
+      g_symbol = "XAUUSDc";
    if(!SymbolSelect(g_symbol, true))
      {
       Print("fredfxV2: cannot select ", g_symbol, " — add it to Market Watch.");
@@ -132,7 +132,7 @@ int OnInit()
    ApplyFilling();
 
    Print("====================================================");
-   Print("fredfxV2  SMC XAUUSDm robot");
+   Print("fredfxV2  SMC XAUUSDc robot");
    Print("Symbol ", g_symbol, " | Timeframes used: M5 M15 H1");
    Print("RR 1:", DoubleToString(InpRiskReward, 0),
          " | max ", InpMaxPositions, " positions | 0.01 lot per $300");
@@ -141,7 +141,7 @@ int OnInit()
    if(AccountInfoInteger(ACCOUNT_MARGIN_MODE) != ACCOUNT_MARGIN_MODE_RETAIL_HEDGING)
       Print("Warning: this account is not hedging. fredfxV2 opens up to 3 separate positions — use a hedging account.");
    if(StringFind(g_symbol, "XAU") < 0)
-      Print("Warning: trading ", g_symbol, " — fredfxV2 was designed for XAUUSDm.");
+      Print("Warning: trading ", g_symbol, " — fredfxV2 was designed for XAUUSDc.");
    return(INIT_SUCCEEDED);
   }
 

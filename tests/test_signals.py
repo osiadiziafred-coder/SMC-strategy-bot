@@ -33,7 +33,7 @@ def test_trade_setup_rr_is_two():
 
 def test_config_defaults_match_brief():
     cfg = RobotConfig()
-    assert cfg.symbol == "XAUUSDm"
+    assert cfg.symbol == "XAUUSDc"
     assert cfg.timeframes == ("M5", "M15", "H1")
     assert cfg.risk_reward == 2.0
     assert cfg.max_positions == 3
