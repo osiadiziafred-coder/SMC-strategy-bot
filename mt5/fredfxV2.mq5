@@ -723,12 +723,14 @@ bool BuildSetup(const ENUM_TIMEFRAMES tf, const MqlRates &r[], const int n,
    double lo = r[last].low;
    double hi = r[last].high;
 
-   bool haveOb = false, haveFvg = false;
-   FFZone ob;
-   FFZone fvg;
-   ZeroMemory(ob);
-   ZeroMemory(fvg);
-   double bestOb = 1e100, bestFvg = 1e100;
+   bool haveOb = false;
+   bool haveFvg = false;
+   double obTop = 0.0;
+   double obBottom = 0.0;
+   double fvgTop = 0.0;
+   double fvgBottom = 0.0;
+   double bestOb = 1e100;
+   double bestFvg = 1e100;
    for(int i = 0; i < nob; i++)
      {
       if(obs[i].mitigated || obs[i].dir != bias)
@@ -740,7 +742,8 @@ bool BuildSetup(const ENUM_TIMEFRAMES tf, const MqlRates &r[], const int n,
       if(d < bestOb)
         {
          bestOb = d;
-         ob = obs[i];
+         obTop = obs[i].top;
+         obBottom = obs[i].bottom;
          haveOb = true;
         }
      }
@@ -755,7 +758,8 @@ bool BuildSetup(const ENUM_TIMEFRAMES tf, const MqlRates &r[], const int n,
       if(d < bestFvg)
         {
          bestFvg = d;
-         fvg = fvgs[i];
+         fvgTop = fvgs[i].top;
+         fvgBottom = fvgs[i].bottom;
          haveFvg = true;
         }
      }
@@ -770,12 +774,12 @@ bool BuildSetup(const ENUM_TIMEFRAMES tf, const MqlRates &r[], const int n,
       bool set = false;
       if(haveOb)
         {
-         floorPx = ob.bottom;
+         floorPx = obBottom;
          set = true;
         }
       if(haveFvg)
         {
-         floorPx = set ? MathMin(floorPx, fvg.bottom) : fvg.bottom;
+         floorPx = set ? MathMin(floorPx, fvgBottom) : fvgBottom;
          set = true;
         }
       sl = (set ? floorPx : px) - pad;
@@ -786,12 +790,12 @@ bool BuildSetup(const ENUM_TIMEFRAMES tf, const MqlRates &r[], const int n,
       bool set = false;
       if(haveOb)
         {
-         ceilPx = ob.top;
+         ceilPx = obTop;
          set = true;
         }
       if(haveFvg)
         {
-         ceilPx = set ? MathMax(ceilPx, fvg.top) : fvg.top;
+         ceilPx = set ? MathMax(ceilPx, fvgTop) : fvgTop;
          set = true;
         }
       sl = (set ? ceilPx : px) + pad;
@@ -861,6 +865,16 @@ void ScanAndTrade()
      }
 
    FFSetup dummy;
+   dummy.tf = PERIOD_H1;
+   dummy.dir = FF_NONE;
+   dummy.kind = FF_KIND_NONE;
+   dummy.entry = 0.0;
+   dummy.sl = 0.0;
+   dummy.tp = 0.0;
+   dummy.score = 0;
+   dummy.inOb = false;
+   dummy.inFvg = false;
+   dummy.reason = "";
    bool h1Has = false;
    int h1Bias = FF_NONE;
    AnalyzeTf(PERIOD_H1, FF_NONE, dummy, h1Has, h1Bias);
@@ -882,7 +896,16 @@ void ScanAndTrade()
          continue;
 
       FFSetup setup;
-      ZeroMemory(setup);
+      setup.tf = tfs[t];
+      setup.dir = FF_NONE;
+      setup.kind = FF_KIND_NONE;
+      setup.entry = 0.0;
+      setup.sl = 0.0;
+      setup.tp = 0.0;
+      setup.score = 0;
+      setup.inOb = false;
+      setup.inFvg = false;
+      setup.reason = "";
       bool has = false;
       int biasIgnored = FF_NONE;
       AnalyzeTf(tfs[t], h1Bias, setup, has, biasIgnored);
