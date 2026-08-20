@@ -4,10 +4,10 @@ from smc_robot.config import RobotConfig
 
 
 STRATEGY_SUMMARY = """
-XAUUSDm SMC Robot
-=================
+FredFx V1 m5
+============
 
-This is a Python Smart Money Concepts robot for XAUUSDm (gold).
+This is FredFx V1 m5, a Python Smart Money Concepts robot for XAUUSDm (gold).
 It is not financial advice. Gold is leveraged; you can lose more than you deposit.
 
 How it trades

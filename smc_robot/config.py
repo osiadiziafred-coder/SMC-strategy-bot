@@ -11,7 +11,7 @@ Side = Literal["buy", "sell"]
 
 @dataclass(frozen=True)
 class RobotConfig:
-    """Runtime settings for the XAUUSDm SMC robot."""
+    """Runtime settings for FredFx V1 m5."""
 
     symbol: str = "XAUUSDm"
     timeframes: tuple[Timeframe, ...] = ("M5", "M15", "H1")
@@ -34,9 +34,9 @@ class RobotConfig:
     require_liquidity_sweep: bool = True
     breakeven_at_r: float = 1.0
     breakeven_offset: float = 0.0
-    magic: int = 26082026
-    comment: str = "XAUUSDm SMC"
-    robot_name: str = "XAUUSDm SMC Robot"
+    magic: int = 26080105
+    comment: str = "FredFx V1 m5"
+    robot_name: str = "FredFx V1 m5"
     poll_seconds: float = 5.0
     lookback_bars: int = 400
     cooldown_bars: int = 8

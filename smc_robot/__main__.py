@@ -11,7 +11,7 @@ from smc_robot.summary import render_summary
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="XAUUSDm Smart Money Concepts robot")
+    parser = argparse.ArgumentParser(description="FredFx V1 m5 — XAUUSDm Smart Money Concepts robot")
     parser.add_argument("command", nargs="?", default="run", choices=("run", "summary"))
     parser.add_argument("--mode", choices=("demo", "paper", "live"), default="demo")
     parser.add_argument("--balance", type=float, default=1000.0, help="Starting balance for demo/paper")

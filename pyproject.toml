@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "smc-robot"
 version = "1.0.0"
-description = "Python Smart Money Concepts (SMC) robot for XAUUSDm"
+description = "FredFx V1 m5 — Smart Money Concepts (SMC) XAUUSDm trading robot"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

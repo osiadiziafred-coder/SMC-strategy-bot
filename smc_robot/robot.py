@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class SmcRobot:
-    """Holds at most one XAUUSDm position, moves SL to breakeven, allows many trades per day."""
+    """FredFx V1 m5: one XAUUSDm position, SL to breakeven, many trades per day."""
 
     def __init__(self, broker: Broker, config: RobotConfig | None = None) -> None:
         self.broker = broker

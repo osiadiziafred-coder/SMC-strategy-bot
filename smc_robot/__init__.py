@@ -1,4 +1,4 @@
-"""Python Smart Money Concepts (SMC) robot for XAUUSDm."""
+"""FredFx V1 m5 — XAUUSDm Smart Money Concepts trading robot."""
 
 from smc_robot.config import RobotConfig
 from smc_robot.robot import SmcRobot

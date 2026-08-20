@@ -1,69 +1,57 @@
-# XAUUSDm SMC Robot
+# FredFx V1 m5
 
-Python Smart Money Concepts (SMC) robot for **XAUUSDm**. It reads **M5, M15, and H1**, holds **1 position** at a time, uses a **1:2 stop-to-target**, and moves the stop (**XL / SL**) to **breakeven** when the trade reaches +1R.
+**FredFx V1 m5** is the XAUUSDm Smart Money Concepts Expert Advisor.
+Attach it to an **XAUUSDm M5** chart in MetaTrader 5.
 
 This is not financial advice. Gold is leveraged; you can lose more than you deposit.
 
 ## Strategy summary
 
-| Rule | How the robot does it |
+| Rule | Behavior |
 | --- | --- |
+| Name | **FredFx V1 m5** |
 | Market | XAUUSDm |
-| Timeframes | **H1** bias, **M15** structure, **M5** entry |
-| Concepts | Order blocks, BOS, MSS, CHoCH, FVG, liquidity sweep |
-| Positions | **1** open trade at a time |
-| Frequency | Multiple trades per day after the previous one closes |
-| News | Trades through news (no pause) |
+| Chart | M5 entry (also reads M15 and H1) |
+| SMC | Order blocks, BOS, MSS, CHoCH, FVG, liquidity sweep |
+| Positions | 1 open trade at a time |
+| Frequency | Several trades per day after the previous one closes |
+| News | Trades through news |
 | Stop : take profit | **1 : 2** |
-| Trade management | When price moves +1R, SL is moved to **breakeven** |
-| Lots | Any starting balance. Every **$100** adds **0.01** (minimum 0.01) |
+| Stop | At +1R, SL (XL) moves to **breakeven** |
+| Lots | Every **$100** adds **0.01** (minimum 0.01) |
 
 ### How a trade is picked
 
-1. **H1 bias** — latest BOS, CHoCH, or MSS says bullish or bearish.
-2. **M15** must agree with a recent structure event in that same direction.
-3. **M5 liquidity sweep** — price hunts stops beyond a swing high/low, then closes back inside.
-4. **Displacement** leaves an unmitigated **order block** and/or **FVG**.
-5. **Entry** is a fresh tap of that zone. **SL** sits beyond the zone (and the sweep wick). **TP** is 2× that risk.
-6. While the trade is open, once price is **+1R** in profit the robot moves **XL to breakeven**. After the trade closes it may take another the same day.
+1. **H1 bias** — latest BOS, CHoCH, or MSS.
+2. **M15** must agree.
+3. **M5 liquidity sweep** — wick through a swing, close back inside.
+4. Entry is a fresh tap of an unmitigated **order block** or **FVG**.
+5. **SL** sits beyond the zone and the sweep wick. **TP** is 2× that risk.
+6. When price moves +1R, SL is moved to breakeven.
 
-BOS is continuation (break with the trend). CHoCH is the first break against the trend. MSS is a CHoCH that prints with displacement. A liquidity sweep is a wick through a swing that fails to close beyond it.
+## Full code (compile this in MetaTrader 5)
 
-Print the same summary from the CLI:
+The complete robot is one file:
 
-```bash
-python -m smc_robot summary
-```
+**`MQL5/Experts/FredFx_V1_m5.mq5`**
 
-## Run the Python robot
+MetaEditor is the only compiler that can build the `.ex5` file.
+
+1. Open **MetaTrader 5**.
+2. Press **Ctrl+Shift+D** (File → Open Data Folder).
+3. Copy `MQL5/Experts/FredFx_V1_m5.mq5` into that folder’s `MQL5/Experts/` directory.
+4. Press **F4** to open **MetaEditor**.
+5. Open `FredFx_V1_m5.mq5` and press **F7** (Compile).
+6. You should see `FredFx_V1_m5.ex5` with **0 errors**.
+7. In MT5, open **XAUUSDm, M5**, drag **FredFx V1 m5** onto the chart.
+8. Enable **Algo Trading**.
+
+## Python check (same strategy)
 
 ```bash
 python -m pip install -r requirements.txt
+python scripts/compile_fredfx.py
 python -m pytest
+python -m smc_robot summary
 python -m smc_robot --mode demo --balance 1000
-```
-
-Paper scan on an M5 CSV (`time,open,high,low,close`):
-
-```bash
-python -m smc_robot --mode paper --csv gold_m5.csv --balance 500
-```
-
-Live MetaTrader 5 (Windows terminal running, XAUUSDm in Market Watch):
-
-```bash
-python -m pip install -e ".[mt5]"
-# copy .env.example to .env and fill login / password / server
-python -m smc_robot --mode live
-```
-
-## Layout
-
-```
-smc_robot/
-  smc/           swings, BOS/CHoCH/MSS, FVG, order blocks, liquidity sweeps
-  risk.py        $100 lot formula, 1:2 RR, breakeven SL
-  robot.py       one-position orchestrator
-  broker/        paper + MetaTrader 5
-  summary.py     printable strategy summary
 ```

@@ -70,7 +70,7 @@ def test_demo_cli_runs(capsys):
 
     assert main(["--mode", "demo", "--balance", "1000"]) == 0
     out = capsys.readouterr().out
-    assert "XAUUSDm SMC Robot" in out
+    assert "FredFx V1 m5" in out
     assert "XAUUSDm" in out
     assert "1:2" in out
 
