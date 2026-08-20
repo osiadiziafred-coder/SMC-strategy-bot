@@ -9,7 +9,7 @@ It trades Smart Money Concepts on M5 / M15 / H1: Order Blocks, BOS, MSS, CHoCH, 
 1. Copy `fredfxV2.mq5` into your MT5 `MQL5/Experts/` folder.
 2. Compile it in MetaEditor.
 3. Attach it to an **XAUUSDm** chart (any timeframe; the EA reads M5, M15, and H1 itself).
-4. Use a **hedging** account. AutoTrading must be enabled.
+4. AutoTrading must be enabled. The EA holds **one position at a time**.
 
 ## Lot sizing (current balance)
 
@@ -35,6 +35,6 @@ The result is then clamped to the broker minimum lot, maximum lot, and lot step.
 ## Defaults
 
 - Symbol: `XAUUSDm`
-- Max 3 positions, one per timeframe
+- One position at a time (best score among M5 / M15 / H1)
 - Risk:reward 1:2
 - Trail SL to break-even at 1R, then trail

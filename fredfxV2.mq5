@@ -5,9 +5,9 @@
 //+------------------------------------------------------------------+
 #property copyright "fredfxV2"
 #property link      ""
-#property version   "2.01"
+#property version   "2.02"
 #property description "fredfxV2 — SMC robot for XAUUSDm. H1 bias, M5/M15/H1 entries,"
-#property description "Order Block + FVG retest, 1:2 RR, trail XL up,"
+#property description "Order Block + FVG retest, 1:2 RR, one position only, trail XL up,"
 #property description "lot starts 0.01, first +0.01 at $150, then +0.01 every $100."
 
 #include <Trade/Trade.mqh>
@@ -17,7 +17,7 @@ input group "=== fredfxV2 core ==="
 input string            InpSymbol            = "XAUUSDm";
 input string            InpCommentPrefix     = "fredfxV2";
 input ulong             InpMagic             = 20250819;
-input int               InpMaxPositions      = 3;
+input int               InpMaxPositions      = 1;        // one live position only
 input double            InpRiskReward        = 2.0;
 input int               InpMaxTradesPerDay   = 24;
 input bool              InpOnePerTimeframe   = true;
@@ -144,10 +144,11 @@ int OnInit()
          " at $", DoubleToString(InpFirstIncreaseBalance, 2),
          " then +", DoubleToString(InpLotIncrease, 2),
          " per $", DoubleToString(InpBalanceStep, 2));
-   Print("Trail XL up at ", DoubleToString(InpTrailActivateR, 1), "R  | news: always trade");
+   Print("Trail XL up at ", DoubleToString(InpTrailActivateR, 1), "R  | one position only");
    Print("====================================================");
-   if(AccountInfoInteger(ACCOUNT_MARGIN_MODE) != ACCOUNT_MARGIN_MODE_RETAIL_HEDGING)
-      Print("Warning: this account is not hedging. fredfxV2 opens up to 3 separate positions — use a hedging account.");
+   if(InpMaxPositions > 1 &&
+      AccountInfoInteger(ACCOUNT_MARGIN_MODE) != ACCOUNT_MARGIN_MODE_RETAIL_HEDGING)
+      Print("Warning: this account is not hedging. Raise InpMaxPositions only on a hedging account.");
    if(StringFind(g_symbol, "XAU") < 0)
       Print("Warning: trading ", g_symbol, " — fredfxV2 was designed for XAUUSDm.");
    return(INIT_SUCCEEDED);
@@ -904,6 +905,10 @@ int AnalyzeTf(const ENUM_TIMEFRAMES tf, const int htfBias, FFSetup &setup, bool 
 //+------------------------------------------------------------------+
 void ScanAndTrade()
   {
+   if(CountOurPositions() >= InpMaxPositions)
+      return;
+   if(TradesToday() >= InpMaxTradesPerDay)
+      return;
    if(InpMaxSpreadPoints > 0)
      {
       long spread = SymbolInfoInteger(g_symbol, SYMBOL_SPREAD);
@@ -928,17 +933,27 @@ void ScanAndTrade()
    if(h1Bias == FF_NONE)
       return;
 
+   // H1 first so a tie keeps the higher-timeframe setup
    ENUM_TIMEFRAMES tfs[3];
-   tfs[0] = PERIOD_M5;
+   tfs[0] = PERIOD_H1;
    tfs[1] = PERIOD_M15;
-   tfs[2] = PERIOD_H1;
+   tfs[2] = PERIOD_M5;
+
+   FFSetup best;
+   best.tf = PERIOD_M5;
+   best.dir = FF_NONE;
+   best.kind = FF_KIND_NONE;
+   best.entry = 0.0;
+   best.sl = 0.0;
+   best.tp = 0.0;
+   best.score = -1;
+   best.inOb = false;
+   best.inFvg = false;
+   best.reason = "";
+   bool haveBest = false;
 
    for(int t = 0; t < 3; t++)
      {
-      if(CountOurPositions() >= InpMaxPositions)
-         break;
-      if(TradesToday() >= InpMaxTradesPerDay)
-         break;
       if(InpOnePerTimeframe && HasTfPosition(tfs[t]))
          continue;
 
@@ -958,12 +973,21 @@ void ScanAndTrade()
       AnalyzeTf(tfs[t], h1Bias, setup, has, biasIgnored);
       if(!has)
          continue;
-      OpenSetup(setup);
+      if(!haveBest || setup.score > best.score)
+        {
+         best = setup;
+         haveBest = true;
+        }
      }
+
+   if(haveBest)
+      OpenSetup(best);
   }
 
 bool OpenSetup(const FFSetup &setup)
   {
+   if(CountOurPositions() >= InpMaxPositions)
+      return(false);
    double bid = SymbolInfoDouble(g_symbol, SYMBOL_BID);
    double ask = SymbolInfoDouble(g_symbol, SYMBOL_ASK);
    bool isBuy = (setup.dir == FF_BULL);
