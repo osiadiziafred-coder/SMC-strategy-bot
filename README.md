@@ -1,6 +1,6 @@
 # SMC XAUUSDm Trading Robot
 
-Python automated trading robot for **XAUUSDm** (Gold) using **Smart Money Concepts (SMC)** with MetaTrader 5.
+Automated trading robot for **XAUUSDm** (Gold) using **Smart Money Concepts (SMC)**. Available as a native **MQL5 Expert Advisor** (recommended) and a Python script.
 
 ## Strategy
 
@@ -30,62 +30,78 @@ Multi-timeframe SMC confluence:
 | Lot sizing | $100 balance = 0.01 lot |
 | News trading | Enabled |
 
-## Project structure
+---
+
+## MQL5 Expert Advisor (recommended)
+
+Runs natively inside MetaTrader 5 — no Python required.
+
+### Project structure
 
 ```
-├── main.py              # Robot entry point & main loop
-├── config.py            # All settings (symbol, timeframes, R:R, lots)
-├── broker.py            # MetaTrader 5 connection & orders
-├── risk_manager.py      # Lot sizing, SL/TP, breakeven logic
-├── strategy.py          # Multi-TF SMC confluence engine
-├── smc/
-│   ├── swing.py         # Swing high/low detection
-│   ├── liquidity.py     # Liquidity sweep detection
-│   ├── structure.py     # MSS / CHoCH & H1 bias
-│   └── fvg.py           # Fair Value Gap detection
-└── requirements.txt
+mql5/
+├── Experts/
+│   └── SMC_Robot/
+│       └── SMC_Robot.mq5       # Main Expert Advisor
+└── Include/
+    └── SMC/
+        ├── SMC_Types.mqh        # Enums and structs
+        ├── SMC_Swing.mqh        # Swing high/low detection
+        ├── SMC_Liquidity.mqh    # Liquidity sweep detection
+        ├── SMC_Structure.mqh    # MSS/CHoCH + H1 bias
+        ├── SMC_FVG.mqh          # Fair Value Gap detection
+        ├── SMC_Strategy.mqh     # Multi-TF confluence engine
+        └── SMC_Risk.mqh         # Lot sizing, breakeven
 ```
 
-## Setup
+### Install in MetaTrader 5
 
-### Prerequisites
+1. Open MT5 → **File → Open Data Folder**
+2. Copy the contents of `mql5/` into your MT5 data folder:
+   - `mql5/Experts/SMC_Robot/` → `MQL5/Experts/SMC_Robot/`
+   - `mql5/Include/SMC/` → `MQL5/Include/SMC/`
+3. In MT5, open **MetaEditor** (F4)
+4. Open `Experts/SMC_Robot/SMC_Robot.mq5` and click **Compile** (F7)
+5. In MT5, drag **SMC_Robot** onto the **XAUUSDm M5** chart
+6. Enable **AutoTrading** (toolbar button)
 
-- **Windows** with [MetaTrader 5](https://www.metatrader5.com/) installed
-- Python 3.10+
-- An MT5 account with XAUUSDm available (e.g. Exness, IC Markets)
+### EA input parameters
 
-### Install
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| InpSymbol | XAUUSDm | Trading symbol |
+| InpRiskReward | 2.0 | Risk : Reward ratio (1:2) |
+| InpBreakevenAtR | 1.0 | Move SL to breakeven at +1R |
+| InpBalancePer001Lot | 100.0 | $100 = 0.01 lot |
+| InpSwingLookback | 5 | Swing detection lookback |
+| InpSweepTolerancePips | 2.0 | Liquidity sweep tolerance |
+| InpFvgMinGapPips | 1.0 | Minimum FVG gap size |
+| InpPipSize | 0.1 | Pip size for gold |
+| InpMagicNumber | 20260820 | EA magic number |
+
+### How it works
+
+1. On each new **M5 bar**, scans H1 → M15 → M5 for SMC confluence
+2. Opens **one position** when all conditions align
+3. Sets SL below/above sweep wick, TP at **2R**
+4. On every tick, moves SL to **breakeven** when price hits +1R
+5. Repeats — multiple trades per day allowed (including news)
+
+---
+
+## Python version (alternative)
+
+Requires Python + MT5 terminal running on Windows.
 
 ```bash
 pip install -r requirements.txt
-```
-
-### Configure
-
-Edit `config.py` or set environment variables:
-
-```python
-# config.py
-symbol = "XAUUSDm"
-mt5_login = 12345678        # your MT5 account number
-mt5_password = "your_password"
-mt5_server = "Exness-MT5Trial"
-mt5_path = "C:/Program Files/MetaTrader 5/terminal64.exe"
-```
-
-### Run
-
-```bash
+# Edit config.py with MT5 credentials
 python main.py
 ```
 
-The robot will:
-1. Connect to MT5
-2. Scan H1 → M15 → M5 every 10 seconds
-3. Open **one position** when all SMC conditions align
-4. Move SL to **breakeven** when price reaches +1R
-5. Close at TP (2R) or SL
-6. Repeat — multiple trades per day allowed
+See `config.py`, `main.py`, and `smc/` for the Python implementation.
+
+---
 
 ## Lot sizing examples
 
@@ -98,4 +114,4 @@ The robot will:
 
 ## Risk disclaimer
 
-This software is for educational purposes. Trading forex and CFDs involves substantial risk of loss. Always backtest thoroughly before live trading. Past performance does not guarantee future results.
+This software is for educational purposes. Trading forex and CFDs involves substantial risk of loss. Always backtest thoroughly in the MT5 Strategy Tester before live trading. Past performance does not guarantee future results.
