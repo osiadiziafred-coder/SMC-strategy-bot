@@ -54,6 +54,7 @@ def test_demo_cli_runs(capsys):
 
     assert main(["--mode", "demo", "--balance", "1000"]) == 0
     out = capsys.readouterr().out
+    assert "FredFx V1 m5" in out
     assert "XAUUSDM" in out
     assert "1:2" in out
 

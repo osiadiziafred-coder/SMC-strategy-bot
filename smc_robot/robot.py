@@ -28,7 +28,7 @@ class SmcRobot:
 
     def start(self) -> None:
         self.broker.connect()
-        logger.info("Robot connected for %s", self.config.symbol)
+        logger.info("FredFx V1 m5 connected for %s", self.config.symbol)
 
     def stop(self) -> None:
         self.broker.shutdown()

@@ -33,8 +33,9 @@ class RobotConfig:
     recent_event_bars: int = 40
     breakeven_at_r: float = 1.0
     trail_distance_r: float = 1.0
-    magic: int = 20250820
-    comment: str = "SMC_XAU"
+    magic: int = 26080105
+    comment: str = "FredFx V1 m5"
+    robot_name: str = "FredFx V1 m5"
     poll_seconds: float = 5.0
     lookback_bars: int = 400
     cooldown_bars: int = 12

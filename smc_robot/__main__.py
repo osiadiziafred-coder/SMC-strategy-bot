@@ -10,7 +10,7 @@ from smc_robot.robot import SmcRobot
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="XAUUSDM Smart Money Concepts robot")
+    parser = argparse.ArgumentParser(description="FredFx V1 m5 — XAUUSDM Smart Money Concepts robot")
     parser.add_argument("--mode", choices=("demo", "paper", "live"), default="demo")
     parser.add_argument("--balance", type=float, default=1000.0, help="Starting balance for demo/paper")
     parser.add_argument("--symbol", default="XAUUSDM")
@@ -52,6 +52,7 @@ def main(argv: list[str] | None = None) -> int:
     robot = SmcRobot(broker, config)
     robot.start()
     taken = robot.run_until_end()
+    print("Robot: FredFx V1 m5")
     print(f"Symbol: {config.symbol}")
     print(f"Timeframes: {', '.join(config.timeframes)}")
     print(f"Risk:reward: 1:{config.risk_reward:.0f}")
