@@ -8,7 +8,7 @@ from smc_robot.smc.structure import detect_structure, infer_bias, recent_events
 
 
 class SmcStrategy:
-    """Multi-timeframe SMC entry model for XAUUSDM.
+    """Multi-timeframe SMC entry model for XAUUSDm.
 
     H1 sets bias from the latest BOS / MSS / CHoCH.
     M15 must agree with a recent structure shift in the same direction.

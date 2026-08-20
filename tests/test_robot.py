@@ -17,7 +17,7 @@ def test_robot_holds_only_one_position():
     assert len(broker.open_positions(robot.config.magic)) <= 1
     if broker.open_positions():
         with pytest.raises(RuntimeError, match="already has an open position"):
-            broker.open_trade("XAUUSDM", "buy", 0.01, 1, 3, "x", robot.config.magic)
+            broker.open_trade("XAUUSDm", "buy", 0.01, 1, 3, "x", robot.config.magic)
 
 
 def test_paper_run_executes_and_respects_lot_rule():
@@ -55,7 +55,7 @@ def test_demo_cli_runs(capsys):
     assert main(["--mode", "demo", "--balance", "1000"]) == 0
     out = capsys.readouterr().out
     assert "FredFx V1 m5" in out
-    assert "XAUUSDM" in out
+    assert "XAUUSDm" in out
     assert "1:2" in out
 
 
@@ -63,8 +63,8 @@ def test_strategy_on_synthetic_gold_does_not_crash():
     m5 = PaperBroker.synthetic_gold(400)
     broker = PaperBroker(m5, starting_balance=200.0, index=250)
     signal = SmcStrategy().evaluate(
-        broker.candles("XAUUSDM", "H1", 400),
-        broker.candles("XAUUSDM", "M15", 400),
-        broker.candles("XAUUSDM", "M5", 400),
+        broker.candles("XAUUSDm", "H1", 400),
+        broker.candles("XAUUSDm", "M15", 400),
+        broker.candles("XAUUSDm", "M5", 400),
     )
     assert signal is None or abs(signal.rr - 2.0) < 1e-9

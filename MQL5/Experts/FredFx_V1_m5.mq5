@@ -1,7 +1,7 @@
 //+------------------------------------------------------------------+
 //|                                              FredFx_V1_m5.mq5    |
 //| Expert Advisor name : FredFx V1 m5                               |
-//| Symbol              : XAUUSDM                                    |
+//| Symbol              : XAUUSDm                                    |
 //| Chart               : M5 (also reads M15 and H1)                 |
 //| Strategy            : SMC — order block, BOS, MSS, CHoCH, FVG    |
 //| Risk                : SL:TP = 1:2, trail SL with price           |
@@ -10,7 +10,7 @@
 //+------------------------------------------------------------------+
 #property copyright   "Fred Fx"
 #property version     "1.00"
-#property description "FredFx V1 m5 — SMC XAUUSDM robot. M5 entry, M15/H1 bias, 1:2 RR."
+#property description "FredFx V1 m5 — SMC XAUUSDm robot. M5 entry, M15/H1 bias, 1:2 RR."
 
 #include <Trade/Trade.mqh>
 
@@ -26,7 +26,7 @@
 #define SWING_HIGH    1
 #define SWING_LOW    -1
 
-input string InpSymbol          = "XAUUSDM";
+input string InpSymbol          = "XAUUSDm";
 input double InpRiskReward      = 2.0;
 input double InpLotPer100       = 0.01;
 input double InpMinLot          = 0.01;

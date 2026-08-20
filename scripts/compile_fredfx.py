@@ -35,7 +35,7 @@ def check_mq5() -> None:
         fail("MQL5 EA must not use #property strict (that is MQL4)")
     if "#include <Trade/Trade.mqh>" not in src:
         fail("missing Trade.mqh include")
-    for token in ("OnInit", "OnTick", "OnDeinit", "XAUUSDM", "PERIOD_M5", "PERIOD_M15", "PERIOD_H1"):
+    for token in ("OnInit", "OnTick", "OnDeinit", "XAUUSDm", "PERIOD_M5", "PERIOD_M15", "PERIOD_H1"):
         if token not in src:
             fail(f"missing required token {token}")
 

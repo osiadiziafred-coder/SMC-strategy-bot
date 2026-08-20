@@ -9,7 +9,7 @@ from smc_robot.config import Position, Side
 
 
 class Mt5Broker(Broker):
-    """MetaTrader 5 adapter for live XAUUSDM trading (Windows terminal)."""
+    """MetaTrader 5 adapter for live XAUUSDm trading (Windows terminal)."""
 
     def __init__(
         self,

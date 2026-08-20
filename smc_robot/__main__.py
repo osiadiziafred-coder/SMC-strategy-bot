@@ -10,10 +10,10 @@ from smc_robot.robot import SmcRobot
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="FredFx V1 m5 — XAUUSDM Smart Money Concepts robot")
+    parser = argparse.ArgumentParser(description="FredFx V1 m5 — XAUUSDm Smart Money Concepts robot")
     parser.add_argument("--mode", choices=("demo", "paper", "live"), default="demo")
     parser.add_argument("--balance", type=float, default=1000.0, help="Starting balance for demo/paper")
-    parser.add_argument("--symbol", default="XAUUSDM")
+    parser.add_argument("--symbol", default="XAUUSDm")
     parser.add_argument("--csv", help="M5 OHLC CSV for paper mode (columns: time,open,high,low,close)")
     parser.add_argument("--once", action="store_true", help="Evaluate one bar and exit")
     return parser

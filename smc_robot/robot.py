@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class SmcRobot:
-    """Holds at most one XAUUSDM position, trails SL upward, allows many trades per day."""
+    """Holds at most one XAUUSDm position, trails SL upward, allows many trades per day."""
 
     def __init__(self, broker: Broker, config: RobotConfig | None = None) -> None:
         self.broker = broker

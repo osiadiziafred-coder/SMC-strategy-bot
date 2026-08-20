@@ -1,7 +1,7 @@
 # FredFx V1 m5
 
-**FredFx V1 m5** is the XAUUSDM Smart Money Concepts Expert Advisor.
-Attach it to an **XAUUSDM M5** chart in MetaTrader 5.
+**FredFx V1 m5** is the XAUUSDm Smart Money Concepts Expert Advisor.
+Attach it to an **XAUUSDm M5** chart in MetaTrader 5.
 
 This is not financial advice. Gold is leveraged; you can lose more than you deposit.
 
@@ -10,7 +10,7 @@ This is not financial advice. Gold is leveraged; you can lose more than you depo
 | Rule | Behavior |
 | --- | --- |
 | Name | **FredFx V1 m5** |
-| Market | XAUUSDM |
+| Market | XAUUSDm |
 | Chart | M5 entry (also reads M15 and H1) |
 | SMC | Order blocks, BOS, MSS, CHoCH, FVG |
 | Positions | 1 open trade at a time |
@@ -30,7 +30,7 @@ MetaEditor is the only compiler that can build the `.ex5` file. This environment
 4. Press **F4** to open **MetaEditor**.
 5. Open `FredFx_V1_m5.mq5` and press **F7** (Compile).
 6. You should see `FredFx_V1_m5.ex5` with **0 errors**.
-7. In MT5, open **XAUUSDM, M5**, drag **FredFx V1 m5** onto the chart.
+7. In MT5, open **XAUUSDm, M5**, drag **FredFx V1 m5** onto the chart.
 8. Enable **Algo Trading**.
 
 The full Expert Advisor source is:

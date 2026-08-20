@@ -11,9 +11,9 @@ Side = Literal["buy", "sell"]
 
 @dataclass(frozen=True)
 class RobotConfig:
-    """Runtime settings for the XAUUSDM SMC robot."""
+    """Runtime settings for the XAUUSDm SMC robot."""
 
-    symbol: str = "XAUUSDM"
+    symbol: str = "XAUUSDm"
     timeframes: tuple[Timeframe, ...] = ("M5", "M15", "H1")
     bias_tf: Timeframe = "H1"
     structure_tf: Timeframe = "M15"

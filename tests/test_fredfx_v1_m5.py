@@ -7,7 +7,7 @@ def test_robot_is_named_fredfx_v1_m5():
     cfg = RobotConfig()
     assert cfg.robot_name == "FredFx V1 m5"
     assert cfg.comment == "FredFx V1 m5"
-    assert cfg.symbol == "XAUUSDM"
+    assert cfg.symbol == "XAUUSDm"
     assert cfg.entry_tf == "M5"
     assert cfg.risk_reward == 2.0
 
@@ -19,6 +19,7 @@ def test_mq5_expert_is_complete():
     assert "#include <Trade/Trade.mqh>" in src
     assert "int OnInit()" in src
     assert "void OnTick()" in src
+    assert 'InpSymbol          = "XAUUSDm"' in src
     assert "PERIOD_M5" in src
     assert "PERIOD_M15" in src
     assert "PERIOD_H1" in src
