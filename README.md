@@ -36,13 +36,15 @@ Multi-timeframe SMC confluence:
 
 Runs natively inside MetaTrader 5 — no Python required.
 
+**EA name:** FredFx V1 m5
+
 ### Project structure
 
 ```
 mql5/
 ├── Experts/
-│   └── SMC_Robot/
-│       └── SMC_Robot.mq5       # Main Expert Advisor
+│   └── FredFx_V1_m5/
+│       └── FredFx_V1_m5.mq5    # Main Expert Advisor
 └── Include/
     └── SMC/
         ├── SMC_Types.mqh        # Enums and structs
@@ -58,11 +60,11 @@ mql5/
 
 1. Open MT5 → **File → Open Data Folder**
 2. Copy the contents of `mql5/` into your MT5 data folder:
-   - `mql5/Experts/SMC_Robot/` → `MQL5/Experts/SMC_Robot/`
+   - `mql5/Experts/FredFx_V1_m5/` → `MQL5/Experts/FredFx_V1_m5/`
    - `mql5/Include/SMC/` → `MQL5/Include/SMC/`
 3. In MT5, open **MetaEditor** (F4)
-4. Open `Experts/SMC_Robot/SMC_Robot.mq5` and click **Compile** (F7)
-5. In MT5, drag **SMC_Robot** onto the **XAUUSDm M5** chart
+4. Open `Experts/FredFx_V1_m5/FredFx_V1_m5.mq5` and click **Compile** (F7)
+5. In MT5, drag **FredFx V1 m5** onto the **XAUUSDm M5** chart
 6. Enable **AutoTrading** (toolbar button)
 
 ### EA input parameters

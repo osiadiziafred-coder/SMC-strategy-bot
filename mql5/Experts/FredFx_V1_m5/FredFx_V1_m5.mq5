@@ -1,12 +1,12 @@
 //+------------------------------------------------------------------+
-//| SMC_Robot.mq5 — SMC XAUUSDm Expert Advisor                       |
+//| FredFx_V1_m5.mq5 — FredFx V1 m5 Expert Advisor                  |
 //| Strategy: H1 bias | M15 sweep+CHoCH | M5 FVG entry               |
 //| Risk: 1:2 R:R | Breakeven at +1R | $100 = 0.01 lot              |
 //+------------------------------------------------------------------+
-#property copyright "SMC Strategy Bot"
+#property copyright "FredFx"
 #property link      "https://github.com/osiadiziafred-coder/SMC-strategy-bot"
 #property version   "1.00"
-#property description "Smart Money Concepts robot for XAUUSDm"
+#property description "FredFx V1 m5 — SMC XAUUSDm Robot"
 
 #include <Trade/Trade.mqh>
 #include <SMC/SMC_Strategy.mqh>
@@ -14,24 +14,25 @@
 
 //--- Input parameters
 input string   InpSymbol             = "XAUUSDm";       // Trading symbol
-input double   InpRiskReward         = 2.0;             // Risk : Reward ratio
-input double   InpBreakevenAtR       = 1.0;             // Move SL to BE at this R
-input double   InpBalancePer001Lot   = 100.0;           // Balance per 0.01 lot ($)
-input double   InpMinLot             = 0.01;            // Minimum lot size
-input double   InpMaxLot             = 100.0;           // Maximum lot size
-input int      InpSwingLookback      = 5;               // Swing lookback bars
-input double   InpSweepTolerancePips = 2.0;             // Sweep tolerance (pips)
-input double   InpFvgMinGapPips      = 1.0;             // Min FVG gap (pips)
-input double   InpPipSize            = 0.1;             // Pip size for XAUUSD
-input int      InpMagicNumber        = 20260820;        // EA magic number
-input int      InpH1Bars             = 200;             // H1 bars to load
-input int      InpM15Bars            = 300;             // M15 bars to load
-input int      InpM5Bars             = 500;             // M5 bars to load
+input double   InpRiskReward           = 2.0;           // Risk : Reward ratio
+input double   InpBreakevenAtR         = 1.0;           // Move SL to BE at this R
+input double   InpBalancePer001Lot     = 100.0;         // Balance per 0.01 lot ($)
+input double   InpMinLot               = 0.01;          // Minimum lot size
+input double   InpMaxLot               = 100.0;         // Maximum lot size
+input int      InpSwingLookback        = 5;             // Swing lookback bars
+input double   InpSweepTolerancePips   = 2.0;           // Sweep tolerance (pips)
+input double   InpFvgMinGapPips        = 1.0;           // Min FVG gap (pips)
+input double   InpPipSize              = 0.1;           // Pip size for XAUUSD
+input int      InpMagicNumber          = 20260820;      // EA magic number
+input int      InpH1Bars               = 200;           // H1 bars to load
+input int      InpM15Bars              = 300;           // M15 bars to load
+input int      InpM5Bars               = 500;           // M5 bars to load
 
 //--- Globals
 CTrade   g_trade;
 datetime g_lastBarTime = 0;
 string   g_symbol;
+string   g_eaName = "FredFx V1 m5";
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -39,7 +40,7 @@ int OnInit()
    g_symbol = InpSymbol;
    if(!SymbolSelect(g_symbol, true))
      {
-      Print("Failed to select symbol: ", g_symbol);
+      Print(g_eaName, ": Failed to select symbol: ", g_symbol);
       return INIT_FAILED;
      }
 
@@ -47,7 +48,7 @@ int OnInit()
    g_trade.SetDeviationInPoints(20);
    g_trade.SetTypeFilling(ORDER_FILLING_IOC);
 
-   Print("SMC Robot initialized on ", g_symbol);
+   Print(g_eaName, " initialized on ", g_symbol);
    Print("R:R 1:", InpRiskReward, " | Breakeven at ", InpBreakevenAtR, "R");
    Print("Lot sizing: $", InpBalancePer001Lot, " = 0.01 lot");
    return INIT_SUCCEEDED;
@@ -56,26 +57,22 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-   Print("SMC Robot stopped. Reason: ", reason);
+   Print(g_eaName, " stopped. Reason: ", reason);
   }
 
 //+------------------------------------------------------------------+
 void OnTick()
   {
-   // Manage breakeven on every tick
    ManageBreakeven(g_symbol, InpMagicNumber, InpBreakevenAtR, InpPipSize);
 
-   // Only scan for new entries on new M5 bar
    datetime barTime = iTime(g_symbol, PERIOD_M5, 0);
    if(barTime == g_lastBarTime)
       return;
    g_lastBarTime = barTime;
 
-   // Max 1 position
    if(CountOpenPositions(g_symbol, InpMagicNumber) >= 1)
       return;
 
-   // Load candle data
    double h1High[], h1Low[], h1Close[];
    double m15High[], m15Low[], m15Close[];
    double m5High[], m5Low[], m5Close[];
@@ -106,9 +103,8 @@ void OnTick()
    if(!signal.valid)
       return;
 
-   Print("SIGNAL: ", signal.isBuy ? "BUY" : "SELL", " | ", signal.reason);
+   Print(g_eaName, " SIGNAL: ", signal.isBuy ? "BUY" : "SELL", " | ", signal.reason);
 
-   // Calculate lot, SL, TP
    double lots = CalcLotSize(g_symbol, InpBalancePer001Lot, InpMinLot, InpMaxLot);
    double sl, tp;
    double entry = signal.isBuy ? SymbolInfoDouble(g_symbol, SYMBOL_ASK)
@@ -119,19 +115,20 @@ void OnTick()
    sl = NormalizeDouble(sl, digits);
    tp = NormalizeDouble(tp, digits);
 
-   PrintFormat("Trade: %s %.2f lots | Entry %.2f | SL %.2f | TP %.2f",
-               signal.isBuy ? "BUY" : "SELL", lots, entry, sl, tp);
+   PrintFormat("%s Trade: %s %.2f lots | Entry %.2f | SL %.2f | TP %.2f",
+               g_eaName, signal.isBuy ? "BUY" : "SELL", lots, entry, sl, tp);
 
    bool result;
    if(signal.isBuy)
-      result = g_trade.Buy(lots, g_symbol, entry, sl, tp, "SMC_Robot");
+      result = g_trade.Buy(lots, g_symbol, entry, sl, tp, g_eaName);
    else
-      result = g_trade.Sell(lots, g_symbol, entry, sl, tp, "SMC_Robot");
+      result = g_trade.Sell(lots, g_symbol, entry, sl, tp, g_eaName);
 
    if(!result)
-      Print("Order failed: ", g_trade.ResultRetcode(), " — ", g_trade.ResultRetcodeDescription());
+      Print(g_eaName, " order failed: ", g_trade.ResultRetcode(),
+            " — ", g_trade.ResultRetcodeDescription());
    else
-      Print("Trade opened — ticket ", g_trade.ResultOrder());
+      Print(g_eaName, " trade opened — ticket ", g_trade.ResultOrder());
   }
 
 //+------------------------------------------------------------------+
@@ -144,17 +141,17 @@ bool LoadOHLC(const string symbol, ENUM_TIMEFRAMES tf, int count,
 
    if(CopyHigh(symbol, tf, 0, count, high) < count)
      {
-      Print("Failed to copy High for ", EnumToString(tf));
+      Print(g_eaName, ": Failed to copy High for ", EnumToString(tf));
       return false;
      }
    if(CopyLow(symbol, tf, 0, count, low) < count)
      {
-      Print("Failed to copy Low for ", EnumToString(tf));
+      Print(g_eaName, ": Failed to copy Low for ", EnumToString(tf));
       return false;
      }
    if(CopyClose(symbol, tf, 0, count, close) < count)
      {
-      Print("Failed to copy Close for ", EnumToString(tf));
+      Print(g_eaName, ": Failed to copy Close for ", EnumToString(tf));
       return false;
      }
    return true;
