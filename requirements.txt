@@ -1,0 +1,5 @@
+# Core dependencies (optional LLM support)
+openai>=1.0.0
+
+# Development / testing
+pytest>=7.0.0
