@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smc-robot"
+version = "0.1.0"
+description = "Smart Money Concepts (SMC) XAUUSDM trading robot"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.1",
+]
+
+[project.optional-dependencies]
+mt5 = ["MetaTrader5>=5.0.45"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+smc-robot = "smc_robot.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["smc_robot*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
