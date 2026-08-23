@@ -66,6 +66,8 @@ def check_mq5() -> None:
         fail("unbalanced double quotes")
     if "ArrayInitialize(used_high" in src or "ArrayInitialize(used_low" in src:
         fail("ArrayInitialize cannot be used on bool arrays")
+    if "CAL_IMPORTANCE_HIGH" in src:
+        fail("CAL_IMPORTANCE_HIGH is missing on older MT5 builds")
 
 
 def main() -> int:

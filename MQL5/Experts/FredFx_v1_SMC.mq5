@@ -434,7 +434,8 @@ bool NewsBlocked()
       ZeroMemory(ev);
       if(!CalendarEventById(values[i].event_id, ev))
          continue;
-      if(InpNewsHighOnly && ev.importance != CAL_IMPORTANCE_HIGH)
+      // 3 = high-impact news. Named calendar enums are missing on older MT5 builds.
+      if(InpNewsHighOnly && (int)ev.importance < 3)
          continue;
       return(true);
      }

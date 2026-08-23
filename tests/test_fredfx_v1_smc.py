@@ -36,5 +36,6 @@ def test_mq5_expert_is_complete():
     assert "ManageBreakeven" in src
     assert "NewsBlocked" in src
     assert "InpTradeNews" in src
+    assert "CAL_IMPORTANCE_HIGH" not in src
     assert src.count("{") == src.count("}")
     assert "#property strict" not in src
