@@ -1,0 +1,39 @@
+# FredFx v1 SMC — runtime settings
+# Python reads these when you pass --config config.yaml
+
+robot_name: FredFx v1 SMC
+symbol: XAUUSDm
+risk_reward: 2.0
+lot_per_100: 0.01
+min_lot: 0.01
+max_lot: 10.0
+lot_step: 0.01
+max_open_positions: 1
+sl_buffer: 0.50
+swing_left: 2
+swing_right: 2
+recent_event_bars: 40
+equal_tolerance: 0.80
+breakeven_at_r: 1.0
+breakeven_offset: 0.0
+cooldown_bars: 8
+lookback_bars: 400
+poll_seconds: 5.0
+magic: 26082301
+comment: FredFx v1 SMC
+
+# Sequential SMC gates (all must pass before a trade)
+require_liquidity_sweep: true
+require_m15_liquidity: true
+require_m15_pd_array: true
+require_m5_structure_after_sweep: true
+
+# News: leave true to keep trading through releases.
+# Set false and list events to pause new entries around high-impact news.
+trade_news: true
+news_blackout_minutes: 30
+# news_calendar_path: news.csv
+# news_events:
+#   - time: "2026-08-23T12:30:00+00:00"
+#     title: US CPI
+#     impact: high
