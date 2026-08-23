@@ -53,7 +53,24 @@ TP or SL hit: Position closes
 No open position: Robot searches for the next valid setup
 ```
 
-## Install
+## Install in MetaTrader 5 (the file to compile)
+
+The live robot is one MQL5 Expert Advisor:
+
+**`MQL5/Experts/FredFx_v1_SMC.mq5`**
+
+1. Open **MetaTrader 5**.
+2. Press **Ctrl+Shift+D** (File → Open Data Folder).
+3. Copy `FredFx_v1_SMC.mq5` into that folder’s `MQL5/Experts/` directory.
+4. Press **F4** to open **MetaEditor**.
+5. Open `FredFx_v1_SMC.mq5` and press **F7** (Compile).
+6. You should see `FredFx_v1_SMC.ex5` with **0 errors**.
+7. In MT5, open **XAUUSDm, M5**, drag **FredFx v1 SMC** onto the chart.
+8. Tick **Allow Algo Trading**, then turn **Algo Trading** ON.
+
+The EA reads H1, M15, and M5 itself. It does not need to stay on M5, but M5 is the intended chart.
+
+## Python check (same strategy)
 
 ```bash
 python -m pip install -e ".[dev]"
@@ -116,5 +133,6 @@ smc_robot/
   news.py        optional high-impact blackout
   robot.py       one-position orchestrator
   broker/        paper + MetaTrader 5
+MQL5/Experts/FredFx_v1_SMC.mq5   MetaEditor Expert Advisor
 config.yaml      editable runtime settings
 ```
