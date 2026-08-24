@@ -1,0 +1,72 @@
+symbol: XAUUSDm
+
+timeframes:
+  bias: H1
+  confirm: M30
+  entry: M15
+
+bars:
+  h1: 300
+  m30: 400
+  m15: 500
+
+smc:
+  swing_n_internal: 2
+  swing_n_external: 5
+  equal_level_atr_mult: 0.15
+  fvg_min_atr_mult: 0.10
+  ob_lookback_bars: 12
+  ob_impulse_atr_mult: 1.20
+  ob_max_age_bars: 24
+  structure_event_max_age_m30: 8
+  structure_event_max_age_m15: 10
+  sweep_lookback_bars: 6
+  atr_period: 14
+
+scoring:
+  min_score: 70.0
+  use_ml: true
+  ml_blend: 0.40
+  model_path: models/smc_scorer.joblib
+  weights:
+    h1_aligned: 20.0
+    m30_confirmation: 15.0
+    liquidity_sweep: 15.0
+    order_block: 15.0
+    fvg: 10.0
+    bos: 5.0
+    choch: 5.0
+    mss: 10.0
+    good_conditions: 10.0
+    poor_conditions: -20.0
+    h1_conflict: -25.0
+
+risk:
+  reward_ratio: 2.0
+  balance_per_lot_step: 100.0
+  lot_step_per_balance: 0.01
+  sl_buffer_atr_mult: 0.10
+  breakeven_r: 1.0
+  breakeven_buffer_points: 0
+  max_positions: 1
+  magic: 20250824
+  comment: SMC-AI
+
+protection:
+  max_spread_points: 80
+  max_slippage_points: 40
+  max_quote_age_ms: 3000
+  spread_spike_mult: 2.5
+  spread_window: 20
+  min_stop_points: 50
+
+market_conditions:
+  atr_slow_period: 50
+  low_atr_ratio: 0.60
+  high_atr_ratio: 2.20
+  choppy_efficiency: 0.18
+
+robot:
+  poll_seconds: 5
+  analyze_on_closed_bar_only: true
+  log_dir: logs
