@@ -28,9 +28,9 @@ def strip_mqh(text: str, filename: str) -> str:
         stripped = line.strip()
         if stripped.startswith("#include"):
             continue
-        if stripped.startswith("#ifndef AMD_"):
+        if stripped.startswith("#ifndef AMD_") and stripped.endswith("_MQH"):
             continue
-        if stripped.startswith("#define AMD_") and "TF_COUNT" not in stripped:
+        if stripped.startswith("#define AMD_") and stripped.endswith("_MQH"):
             continue
         lines.append(line)
     while lines and lines[-1].strip() == "":
