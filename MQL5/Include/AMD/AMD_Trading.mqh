@@ -105,8 +105,19 @@ public:
    double            CalcLot(const double entry, const double sl) const
      {
       if(m_cfg.lotMode == LOT_FIXED)
+         return(NormalizeVolume(m_cfg.fixedLots));
+
+      if(m_cfg.lotMode == LOT_BALANCE_SCALE)
         {
-         double lot = m_cfg.fixedLots;
+         const double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+         const double stepMoney = (m_cfg.balancePerLot > 0.0 ? m_cfg.balancePerLot : 100.0);
+         const double startLots = (m_cfg.startLots > 0.0 ? m_cfg.startLots : 0.01);
+         double steps = MathFloor(balance / stepMoney);
+         if(steps < 1.0)
+            steps = 1.0;
+         double lot = startLots * steps;
+         if(m_cfg.maxLot > 0.0 && lot > m_cfg.maxLot)
+            lot = m_cfg.maxLot;
          return(NormalizeVolume(lot));
         }
 
@@ -133,7 +144,12 @@ public:
       if(step > 0.0)
          lot = MathFloor(lot / step + 1e-8) * step;
       if(lot < vmin)
-         return(0.0);
+        {
+         if(m_cfg.lotMode == LOT_BALANCE_SCALE)
+            lot = vmin;
+         else
+            return(0.0);
+        }
       if(lot > vmax)
          lot = vmax;
       const int digits = (step >= 1.0 ? 0 : (step >= 0.1 ? 1 : 2));
@@ -364,6 +380,13 @@ public:
    bool              HasOpenPosition(void) const
      {
       return(CountOpenPositions() > 0);
+     }
+
+   double            PreviewLot(void) const
+     {
+      const double bid = SymbolInfoDouble(m_symbol, SYMBOL_BID);
+      const double slDummy = bid - PointsToPrice(m_symbol, 200.0);
+      return(CalcLot(bid, slDummy));
      }
 
 private:

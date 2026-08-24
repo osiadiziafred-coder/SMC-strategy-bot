@@ -18,16 +18,16 @@ The EA does **not** assume that every session high or low will be swept, and it 
 
 ## Install in MetaTrader 5 (one file)
 
-The full bot is the standalone file **`AMD_Session_EA.mq5`** at the repo root (same code as `MQL5/Experts/AMD_Session_EA.mq5`). You do **not** need the Include folder.
+The full bot is **`AMD_Session_EA.mq5`**. Copy that one file into `MQL5/Experts/` (or copy `MQL5/Experts/AMD_Session_EA.mq5` plus `MQL5/Include/AMD/`).
 
-1. Open MT5 → **File → Open Data Folder**.
-2. Copy `AMD_Session_EA.mq5` into that folder’s `MQL5/Experts/` directory.
-3. Restart MT5, or in Navigator right-click **Expert Advisors → Refresh**.
-4. Open `AMD_Session_EA.mq5` in MetaEditor and press **Compile** (F7).
-5. Enable **Algo Trading**, then drag the EA onto a chart (M5 or M15 is a good display chart).
-6. Allow live trading in the Common tab. Session hours are **broker server time** — if your server is GMT+2 in winter / GMT+3 in summer, the defaults (Asia `00:00–08:00`, London `08:00–12:00`, New York `12:00–17:00`) already match.
+1. Open an **XAUUSDm** chart. The EA will refuse any other symbol.
+2. MT5 → **File → Open Data Folder** → `MQL5/Experts/` → paste `AMD_Session_EA.mq5`.
+3. Compile (F7). Enable **Algo Trading**. Attach the EA.
+4. Dashboard theme default is **Light** (dark text on a white panel) so it stays readable on a white chart. Set it to Auto or Dark if you use a black background.
 
-The EA reads **H1** for bias and **M5** for entries regardless of the chart period. Both timeframes are inputs.
+The bot scans **H1, M30 and M15** for one AMD setup (H1 preferred if more than one is ready). It opens **one position**. Lots start at **0.01** and add **0.01 per $100** of account balance (input `Balance per extra 0.01 lot`).
+
+The EA reads those timeframes from the symbol history. You can attach it to any of M15 / M30 / H1.
 
 ## Default session map (server time)
 

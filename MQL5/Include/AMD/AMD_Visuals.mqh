@@ -118,48 +118,51 @@ public:
       ObjectsDeleteAll(m_chart, AMD_PREFIX);
      }
 
-   void              DrawRange(const SSessionRange &range)
+   void              DrawRange(const SSessionRange &range, const string tag = "", const color fill = C'30,90,160')
      {
       if(!m_cfg.showVisuals || range.high <= 0.0)
          return;
       const datetime t2 = (range.complete ? range.tEnd : TimeCurrent());
-      Rect("ACC_RANGE", range.tStart, range.high, t2, range.low, C'30,90,160', true);
-      Trend("ACC_HIGH", range.tStart, range.high, t2 + 6 * PeriodSeconds(PERIOD_H1), range.high,
-            clrLime, STYLE_DASH, 1);
-      Trend("ACC_LOW", range.tStart, range.low, t2 + 6 * PeriodSeconds(PERIOD_H1), range.low,
-            clrCrimson, STYLE_DASH, 1);
-      Label("ACC_HIGH_L", range.tStart, range.high, "Buy-side liquidity (session high)",
-            clrLime, ANCHOR_LEFT_LOWER);
-      Label("ACC_LOW_L", range.tStart, range.low, "Sell-side liquidity (session low)",
-            clrCrimson, ANCHOR_LEFT_UPPER);
-      Label("ACC_TITLE", range.tStart, range.high, "ACCUMULATION",
+      const string suffix = (tag == "" ? "" : "_" + tag);
+      Rect("ACC_RANGE" + suffix, range.tStart, range.high, t2, range.low, fill, true);
+      Trend("ACC_HIGH" + suffix, range.tStart, range.high, t2 + 6 * PeriodSeconds(PERIOD_H1), range.high,
+            clrForestGreen, STYLE_DASH, 1);
+      Trend("ACC_LOW" + suffix, range.tStart, range.low, t2 + 6 * PeriodSeconds(PERIOD_H1), range.low,
+            clrFireBrick, STYLE_DASH, 1);
+      Label("ACC_HIGH_L" + suffix, range.tStart, range.high, tag + " Buy-side liquidity (session high)",
+            clrForestGreen, ANCHOR_LEFT_LOWER);
+      Label("ACC_LOW_L" + suffix, range.tStart, range.low, tag + " Sell-side liquidity (session low)",
+            clrFireBrick, ANCHOR_LEFT_UPPER);
+      Label("ACC_TITLE" + suffix, range.tStart, range.high, "ACCUMULATION " + tag,
             clrDodgerBlue, ANCHOR_LEFT_LOWER);
      }
 
-   void              DrawSweep(const SSweepEvent &sweep, const SSessionRange &range)
+   void              DrawSweep(const SSweepEvent &sweep, const SSessionRange &range, const string tag = "")
      {
       if(!m_cfg.showVisuals || !sweep.active)
          return;
       const datetime t1 = sweep.tSweep;
       const datetime t2 = (sweep.tReturned > 0 ? sweep.tReturned : TimeCurrent());
+      const string suffix = (tag == "" ? "" : "_" + tag);
       if(sweep.setupDir == DIR_SELL)
-         Rect("MANIP", t1, sweep.extreme, t2, range.high, C'200,120,20', true);
+         Rect("MANIP" + suffix, t1, sweep.extreme, t2, range.high, C'200,120,20', true);
       else
-         Rect("MANIP", t1, range.low, t2, sweep.extreme, C'200,120,20', true);
-      Label("MANIP_L", t1, sweep.extreme, "MANIPULATION / LIQUIDITY SWEEP",
-            clrOrange, ANCHOR_LEFT_LOWER);
+         Rect("MANIP" + suffix, t1, range.low, t2, sweep.extreme, C'200,120,20', true);
+      Label("MANIP_L" + suffix, t1, sweep.extreme, tag + " MANIPULATION / LIQUIDITY SWEEP",
+            clrOrangeRed, ANCHOR_LEFT_LOWER);
      }
 
-   void              DrawMss(const SStructureShift &mss)
+   void              DrawMss(const SStructureShift &mss, const string tag = "")
      {
       if(!m_cfg.showVisuals || !mss.confirmed)
          return;
-      Arrow("MSS", mss.tShift, mss.brokenLevel, mss.dir);
-      Label("MSS_L", mss.tShift, mss.brokenLevel,
-            "MSS / BOS  " + DirToString(mss.dir),
-            (mss.dir == DIR_BUY ? clrAqua : clrHotPink), ANCHOR_LEFT);
+      const string suffix = (tag == "" ? "" : "_" + tag);
+      Arrow("MSS" + suffix, mss.tShift, mss.brokenLevel, mss.dir);
+      Label("MSS_L" + suffix, mss.tShift, mss.brokenLevel,
+            tag + " MSS / BOS  " + DirToString(mss.dir),
+            (mss.dir == DIR_BUY ? clrTeal : clrMaroon), ANCHOR_LEFT);
       if(mss.hasFvg)
-         Rect("FVG", mss.tShift, mss.fvgTop, TimeCurrent(), mss.fvgBottom, C'80,40,140', true);
+         Rect("FVG" + suffix, mss.tShift, mss.fvgTop, TimeCurrent(), mss.fvgBottom, C'80,40,140', true);
      }
 
    void              DrawTradeLevels(const ENUM_TRADE_DIR dir, const double entry,
@@ -168,49 +171,96 @@ public:
       if(!m_cfg.showVisuals || dir == DIR_NONE)
          return;
       const datetime t2 = t + 8 * PeriodSeconds(PERIOD_H1);
-      Trend("ENTRY", t, entry, t2, entry, clrWhite, STYLE_SOLID, 2);
-      Trend("SL", t, sl, t2, sl, clrRed, STYLE_DOT, 1);
-      Trend("TP", t, tp, t2, tp, clrGold, STYLE_DOT, 1);
-      Label("ENTRY_L", t, entry, "ENTRY " + DirToString(dir), clrWhite, ANCHOR_LEFT);
-      Label("SL_L", t, sl, "STOP LOSS", clrRed, ANCHOR_LEFT);
-      Label("TP_L", t, tp, "TAKE PROFIT", clrGold, ANCHOR_LEFT);
+      const color entryClr = (dir == DIR_BUY ? clrTeal : clrMaroon);
+      Trend("ENTRY", t, entry, t2, entry, entryClr, STYLE_SOLID, 2);
+      Trend("SL", t, sl, t2, sl, clrFireBrick, STYLE_DOT, 2);
+      Trend("TP", t, tp, t2, tp, clrDarkGoldenrod, STYLE_DOT, 2);
+      Label("ENTRY_L", t, entry, "ENTRY " + DirToString(dir), entryClr, ANCHOR_LEFT);
+      Label("SL_L", t, sl, "STOP LOSS", clrFireBrick, ANCHOR_LEFT);
+      Label("TP_L", t, tp, "TAKE PROFIT", C'140,90,0', ANCHOR_LEFT);
       Arrow("SIGNAL", t, entry, dir);
      }
 
-   void              DrawDashboard(const ENUM_SESSION_KIND session, const ENUM_AMD_PHASE phase,
+   bool              UseLightPanel(void) const
+     {
+      if(m_cfg.dashTheme == DASH_LIGHT)
+         return(true);
+      if(m_cfg.dashTheme == DASH_DARK)
+         return(false);
+      const color bg = (color)ChartGetInteger(m_chart, CHART_COLOR_BACKGROUND);
+      return(ColorLuma(bg) >= 400);
+     }
+
+   void              DashLabel(const string id, const int x, const int y, const string text,
+                               const color clr, const int size)
+     {
+      const string name = AMD_PREFIX + id;
+      if(ObjectFind(m_chart, name) < 0)
+        {
+         ObjectCreate(m_chart, name, OBJ_LABEL, 0, 0, 0);
+         ObjectSetInteger(m_chart, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+         ObjectSetInteger(m_chart, name, OBJPROP_ANCHOR, ANCHOR_LEFT_UPPER);
+         ObjectSetString(m_chart, name, OBJPROP_FONT, "Consolas");
+         ObjectSetInteger(m_chart, name, OBJPROP_SELECTABLE, false);
+         ObjectSetInteger(m_chart, name, OBJPROP_HIDDEN, true);
+         ObjectSetInteger(m_chart, name, OBJPROP_BACK, false);
+        }
+      ObjectSetInteger(m_chart, name, OBJPROP_XDISTANCE, x);
+      ObjectSetInteger(m_chart, name, OBJPROP_YDISTANCE, y);
+      ObjectSetInteger(m_chart, name, OBJPROP_COLOR, clr);
+      ObjectSetInteger(m_chart, name, OBJPROP_FONTSIZE, size);
+      ObjectSetString(m_chart, name, OBJPROP_TEXT, text);
+     }
+
+   void              DrawDashboard(const ENUM_SESSION_KIND session,
+                                   const string h1status, const string m30status, const string m15status,
                                    const SSessionRange &range, const SHtfBias &bias,
-                                   const SSweepEvent &sweep, const string lastMsg)
+                                   const double nextLot, const string lastMsg)
      {
       if(!m_cfg.showDashboard)
          return;
 
-      const string lines =
-         "AMD SESSION EA\n" +
-         "Session : " + SessionKindToString(session) + "\n" +
-         "Phase   : " + PhaseToString(phase) + "\n" +
-         "HTF bias: " + DirToString(bias.dir) + "\n" +
-         "Range H : " + DoubleToString(range.high, SymbolDigits(m_symbol)) + "\n" +
-         "Range L : " + DoubleToString(range.low,  SymbolDigits(m_symbol)) + "\n" +
-         "Range   : " + DoubleToString(PriceToPoints(m_symbol, range.rangeSize), 1) + " pts\n" +
-         "Sweep   : " + (sweep.active ? DirToString(sweep.setupDir) : "none") +
-         (sweep.returned ? " (returned)" : "") + "\n" +
-         lastMsg;
+      Comment("");
 
-      Comment(lines);
+      const bool light = UseLightPanel();
+      const color panelBg  = (light ? C'255,255,255' : C'12,16,28');
+      const color border   = (light ? C'10,70,150' : clrDodgerBlue);
+      const color titleClr = (light ? C'10,50,120' : clrAqua);
+      const color textClr  = (light ? C'15,25,45' : C'235,240,248');
+      const color muteClr  = (light ? C'70,80,95' : C'170,180,200');
 
       const string box = AMD_PREFIX + "DASH";
       if(ObjectFind(m_chart, box) < 0)
          ObjectCreate(m_chart, box, OBJ_RECTANGLE_LABEL, 0, 0, 0);
       ObjectSetInteger(m_chart, box, OBJPROP_CORNER, CORNER_LEFT_UPPER);
-      ObjectSetInteger(m_chart, box, OBJPROP_XDISTANCE, 12);
-      ObjectSetInteger(m_chart, box, OBJPROP_YDISTANCE, 22);
-      ObjectSetInteger(m_chart, box, OBJPROP_XSIZE, 280);
-      ObjectSetInteger(m_chart, box, OBJPROP_YSIZE, 188);
-      ObjectSetInteger(m_chart, box, OBJPROP_BGCOLOR, C'12,16,28');
-      ObjectSetInteger(m_chart, box, OBJPROP_BORDER_COLOR, clrDodgerBlue);
-      ObjectSetInteger(m_chart, box, OBJPROP_COLOR, clrWhite);
+      ObjectSetInteger(m_chart, box, OBJPROP_XDISTANCE, 10);
+      ObjectSetInteger(m_chart, box, OBJPROP_YDISTANCE, 18);
+      ObjectSetInteger(m_chart, box, OBJPROP_XSIZE, 340);
+      ObjectSetInteger(m_chart, box, OBJPROP_YSIZE, 268);
+      ObjectSetInteger(m_chart, box, OBJPROP_BGCOLOR, panelBg);
+      ObjectSetInteger(m_chart, box, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+      ObjectSetInteger(m_chart, box, OBJPROP_BORDER_COLOR, border);
+      ObjectSetInteger(m_chart, box, OBJPROP_COLOR, border);
+      ObjectSetInteger(m_chart, box, OBJPROP_WIDTH, 2);
       ObjectSetInteger(m_chart, box, OBJPROP_BACK, false);
       ObjectSetInteger(m_chart, box, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(m_chart, box, OBJPROP_HIDDEN, true);
+
+      const int x = 22;
+      int y = 28;
+      const int step = 16;
+      DashLabel("D_TITLE", x, y, "AMD  XAUUSDm  SESSION BOT", titleClr, 11); y += step + 4;
+      DashLabel("D_SYM",   x, y, "Symbol  : " + m_symbol, textClr, 9); y += step;
+      DashLabel("D_SES",   x, y, "Session : " + SessionKindToString(session), textClr, 9); y += step;
+      DashLabel("D_H1",    x, y, "H1      : " + h1status, textClr, 9); y += step;
+      DashLabel("D_M30",   x, y, "M30     : " + m30status, textClr, 9); y += step;
+      DashLabel("D_M15",   x, y, "M15     : " + m15status, textClr, 9); y += step;
+      DashLabel("D_BIAS",  x, y, "Bias    : " + DirToString(bias.dir), textClr, 9); y += step;
+      DashLabel("D_RH",    x, y, "Range H : " + DoubleToString(range.high, SymbolDigits(m_symbol)), textClr, 9); y += step;
+      DashLabel("D_RL",    x, y, "Range L : " + DoubleToString(range.low,  SymbolDigits(m_symbol)), textClr, 9); y += step;
+      DashLabel("D_LOT",   x, y, "Next lot: " + DoubleToString(nextLot, 2), textClr, 9); y += step;
+      DashLabel("D_MSG",   x, y, lastMsg, muteClr, 8);
+      ChartRedraw(m_chart);
      }
   };
 

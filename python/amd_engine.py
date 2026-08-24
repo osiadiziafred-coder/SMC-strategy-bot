@@ -562,6 +562,17 @@ def tp_from_mode(
     return min(rr_tp, liquidity_target)
 
 
+def scaled_lots(balance: float, start: float = 0.01, step_money: float = 100.0, max_lot: float = 2.0) -> float:
+    """0.01 lots at the first balance step, then +0.01 per additional step."""
+    if step_money <= 0:
+        step_money = 100.0
+    steps = max(1, int(balance // step_money))
+    lot = start * steps
+    if max_lot > 0:
+        lot = min(lot, max_lot)
+    return round(lot, 2)
+
+
 def validate_stops(direction: Direction, entry: float, sl: float, cfg: AMDConfig) -> Tuple[bool, str]:
     sl_pts = points(cfg, abs(entry - sl))
     if direction == Direction.BUY and sl >= entry:

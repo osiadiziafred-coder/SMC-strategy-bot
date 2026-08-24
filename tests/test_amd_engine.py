@@ -31,6 +31,7 @@ from amd_engine import (  # noqa: E402
     htf_bias,
     in_window,
     points,
+    scaled_lots,
     session_bounds,
     sl_from_sweep,
     synthesize_amd_buy_day,
@@ -349,6 +350,14 @@ class RiskTests(unittest.TestCase):
         ok, reason = validate_stops(Direction.SELL, 1.10, 1.09, AMDConfig())
         self.assertFalse(ok)
         self.assertIn("above", reason)
+
+    def test_lot_starts_at_min_and_scales_with_balance(self):
+        self.assertEqual(scaled_lots(50), 0.01)
+        self.assertEqual(scaled_lots(100), 0.01)
+        self.assertEqual(scaled_lots(199), 0.01)
+        self.assertEqual(scaled_lots(200), 0.02)
+        self.assertEqual(scaled_lots(1000), 0.10)
+        self.assertEqual(scaled_lots(50000, max_lot=2.0), 2.0)
 
 
 class LiquidityPoolTests(unittest.TestCase):

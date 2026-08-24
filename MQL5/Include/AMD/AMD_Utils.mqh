@@ -330,6 +330,27 @@ string SessionKindToString(const ENUM_SESSION_KIND kind)
    return("OFF-SESSION");
   }
 
+string TfToString(const ENUM_TIMEFRAMES tf)
+  {
+   switch(tf)
+     {
+      case PERIOD_M15: return("M15");
+      case PERIOD_M30: return("M30");
+      case PERIOD_H1:  return("H1");
+      case PERIOD_H4:  return("H4");
+      case PERIOD_D1:  return("D1");
+     }
+   return(EnumToString(tf));
+  }
+
+int ColorLuma(const color clr)
+  {
+   const int r = (int)(clr & 0xFF);
+   const int g = (int)((clr >> 8) & 0xFF);
+   const int b = (int)((clr >> 16) & 0xFF);
+   return(r + g + b);
+  }
+
 void DebugPrint(const SAmdConfig &cfg, const string msg)
   {
    if(cfg.debugLog)

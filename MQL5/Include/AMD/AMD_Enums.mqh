@@ -20,7 +20,23 @@ enum ENUM_AMD_PHASE
 enum ENUM_LOT_MODE
   {
    LOT_FIXED = 0,               // use InpFixedLots
-   LOT_RISK_PERCENT             // size from account risk % and SL distance
+   LOT_RISK_PERCENT,            // size from account risk % and SL distance
+   LOT_BALANCE_SCALE            // start at 0.01 and add 0.01 per balance step
+  };
+
+enum ENUM_DASH_THEME
+  {
+   DASH_AUTO = 0,               // follow chart background
+   DASH_LIGHT,                  // dark text on a light panel (white charts)
+   DASH_DARK                    // light text on a dark panel
+  };
+
+enum ENUM_TF_PRIORITY
+  {
+   TF_PRIORITY_H1 = 0,          // prefer H1, then M30, then M15
+   TF_PRIORITY_M30,
+   TF_PRIORITY_M15,
+   TF_PRIORITY_FIRST_READY      // first confirmed setup among enabled TFs
   };
 
 enum ENUM_TP_MODE

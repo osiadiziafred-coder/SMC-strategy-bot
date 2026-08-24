@@ -62,13 +62,18 @@ public:
 
    bool              BuildRange(const datetime now, SSessionRange &range) const
      {
+      return(BuildRange(now, range, m_tf));
+     }
+
+   bool              BuildRange(const datetime now, SSessionRange &range, const ENUM_TIMEFRAMES tf) const
+     {
       datetime tStart, tEnd;
       if(!AccumulationBounds(now, tStart, tEnd))
          return(false);
 
       range.tStart     = tStart;
       range.tEnd       = tEnd;
-      range.name       = "ASIA";
+      range.name       = "ASIA " + TfToString(tf);
       range.complete   = (now >= tEnd);
       range.valid      = false;
       range.openPrice  = 0;
@@ -80,7 +85,7 @@ public:
       const datetime toTime = (now < tEnd ? now : tEnd - 1);
       MqlRates rates[];
       ArraySetAsSeries(rates, true);
-      const int copied = CopyRates(m_symbol, m_tf, tStart, toTime, rates);
+      const int copied = CopyRates(m_symbol, tf, tStart, toTime, rates);
       if(copied < m_cfg.minAccBars)
          return(false);
 

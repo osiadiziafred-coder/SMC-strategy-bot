@@ -10,8 +10,13 @@ struct SAmdConfig
   {
    long              magic;
    string            tradeComment;
+   string            tradeSymbol;
    bool              allowBuy;
    bool              allowSell;
+   bool              useM15;
+   bool              useM30;
+   bool              useH1;
+   ENUM_TF_PRIORITY  tfPriority;
 
    int               asiaStartHour;
    int               asiaStartMinute;
@@ -58,6 +63,8 @@ struct SAmdConfig
 
    ENUM_LOT_MODE     lotMode;
    double            fixedLots;
+   double            startLots;
+   double            balancePerLot;
    double            riskPercent;
    double            maxLot;
    double            slBufferPoints;
@@ -83,6 +90,7 @@ struct SAmdConfig
    bool              showVisuals;
    bool              showDashboard;
    bool              showLiquidityLabels;
+   ENUM_DASH_THEME   dashTheme;
    bool              debugLog;
    bool              tradeOnBarClose;
   };

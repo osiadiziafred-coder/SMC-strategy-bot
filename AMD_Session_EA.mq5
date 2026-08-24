@@ -1,12 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                              AMD_Session_EA.mq5  |
 //|     FULL standalone bot — copy this ONE file into MQL5/Experts    |
-//|           Session Accumulation, Manipulation & Distribution      |
+//|     XAUUSDm | M15 M30 H1 | 0.01 lots scaling | white-chart dash   |
 //+------------------------------------------------------------------+
 #property copyright "SMC Strategy Bot"
 #property link      "https://github.com/osiadiziafred-coder/SMC-strategy-bot"
-#property version   "1.00"
-#property description "Full standalone AMD session EA. Drop into MQL5/Experts, compile, attach. No extra include files required."
+#property version   "1.10"
+#property description "XAUUSDm AMD EA. Scans M15/M30/H1, one setup, 0.01 lots scaling with balance. Dashboard readable on white charts."
 
 #include <Trade/Trade.mqh>
 
@@ -34,7 +34,23 @@ enum ENUM_AMD_PHASE
 enum ENUM_LOT_MODE
   {
    LOT_FIXED = 0,               // use InpFixedLots
-   LOT_RISK_PERCENT             // size from account risk % and SL distance
+   LOT_RISK_PERCENT,            // size from account risk % and SL distance
+   LOT_BALANCE_SCALE            // start at 0.01 and add 0.01 per balance step
+  };
+
+enum ENUM_DASH_THEME
+  {
+   DASH_AUTO = 0,               // follow chart background
+   DASH_LIGHT,                  // dark text on a light panel (white charts)
+   DASH_DARK                    // light text on a dark panel
+  };
+
+enum ENUM_TF_PRIORITY
+  {
+   TF_PRIORITY_H1 = 0,          // prefer H1, then M30, then M15
+   TF_PRIORITY_M30,
+   TF_PRIORITY_M15,
+   TF_PRIORITY_FIRST_READY      // first confirmed setup among enabled TFs
   };
 
 enum ENUM_TP_MODE
@@ -100,8 +116,13 @@ struct SAmdConfig
   {
    long              magic;
    string            tradeComment;
+   string            tradeSymbol;
    bool              allowBuy;
    bool              allowSell;
+   bool              useM15;
+   bool              useM30;
+   bool              useH1;
+   ENUM_TF_PRIORITY  tfPriority;
 
    int               asiaStartHour;
    int               asiaStartMinute;
@@ -148,6 +169,8 @@ struct SAmdConfig
 
    ENUM_LOT_MODE     lotMode;
    double            fixedLots;
+   double            startLots;
+   double            balancePerLot;
    double            riskPercent;
    double            maxLot;
    double            slBufferPoints;
@@ -173,6 +196,7 @@ struct SAmdConfig
    bool              showVisuals;
    bool              showDashboard;
    bool              showLiquidityLabels;
+   ENUM_DASH_THEME   dashTheme;
    bool              debugLog;
    bool              tradeOnBarClose;
   };
@@ -586,6 +610,27 @@ string SessionKindToString(const ENUM_SESSION_KIND kind)
    return("OFF-SESSION");
   }
 
+string TfToString(const ENUM_TIMEFRAMES tf)
+  {
+   switch(tf)
+     {
+      case PERIOD_M15: return("M15");
+      case PERIOD_M30: return("M30");
+      case PERIOD_H1:  return("H1");
+      case PERIOD_H4:  return("H4");
+      case PERIOD_D1:  return("D1");
+     }
+   return(EnumToString(tf));
+  }
+
+int ColorLuma(const color clr)
+  {
+   const int r = (int)(clr & 0xFF);
+   const int g = (int)((clr >> 8) & 0xFF);
+   const int b = (int)((clr >> 16) & 0xFF);
+   return(r + g + b);
+  }
+
 void DebugPrint(const SAmdConfig &cfg, const string msg)
   {
    if(cfg.debugLog)
@@ -656,13 +701,18 @@ public:
 
    bool              BuildRange(const datetime now, SSessionRange &range) const
      {
+      return(BuildRange(now, range, m_tf));
+     }
+
+   bool              BuildRange(const datetime now, SSessionRange &range, const ENUM_TIMEFRAMES tf) const
+     {
       datetime tStart, tEnd;
       if(!AccumulationBounds(now, tStart, tEnd))
          return(false);
 
       range.tStart     = tStart;
       range.tEnd       = tEnd;
-      range.name       = "ASIA";
+      range.name       = "ASIA " + TfToString(tf);
       range.complete   = (now >= tEnd);
       range.valid      = false;
       range.openPrice  = 0;
@@ -674,7 +724,7 @@ public:
       const datetime toTime = (now < tEnd ? now : tEnd - 1);
       MqlRates rates[];
       ArraySetAsSeries(rates, true);
-      const int copied = CopyRates(m_symbol, m_tf, tStart, toTime, rates);
+      const int copied = CopyRates(m_symbol, tf, tStart, toTime, rates);
       if(copied < m_cfg.minAccBars)
          return(false);
 
@@ -1335,8 +1385,19 @@ public:
    double            CalcLot(const double entry, const double sl) const
      {
       if(m_cfg.lotMode == LOT_FIXED)
+         return(NormalizeVolume(m_cfg.fixedLots));
+
+      if(m_cfg.lotMode == LOT_BALANCE_SCALE)
         {
-         double lot = m_cfg.fixedLots;
+         const double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+         const double stepMoney = (m_cfg.balancePerLot > 0.0 ? m_cfg.balancePerLot : 100.0);
+         const double startLots = (m_cfg.startLots > 0.0 ? m_cfg.startLots : 0.01);
+         double steps = MathFloor(balance / stepMoney);
+         if(steps < 1.0)
+            steps = 1.0;
+         double lot = startLots * steps;
+         if(m_cfg.maxLot > 0.0 && lot > m_cfg.maxLot)
+            lot = m_cfg.maxLot;
          return(NormalizeVolume(lot));
         }
 
@@ -1363,7 +1424,12 @@ public:
       if(step > 0.0)
          lot = MathFloor(lot / step + 1e-8) * step;
       if(lot < vmin)
-         return(0.0);
+        {
+         if(m_cfg.lotMode == LOT_BALANCE_SCALE)
+            lot = vmin;
+         else
+            return(0.0);
+        }
       if(lot > vmax)
          lot = vmax;
       const int digits = (step >= 1.0 ? 0 : (step >= 0.1 ? 1 : 2));
@@ -1596,6 +1662,13 @@ public:
       return(CountOpenPositions() > 0);
      }
 
+   double            PreviewLot(void) const
+     {
+      const double bid = SymbolInfoDouble(m_symbol, SYMBOL_BID);
+      const double slDummy = bid - PointsToPrice(m_symbol, 200.0);
+      return(CalcLot(bid, slDummy));
+     }
+
 private:
    void              MoveToBreakeven(const ulong ticket, const long type, const double open)
      {
@@ -1730,48 +1803,51 @@ public:
       ObjectsDeleteAll(m_chart, AMD_PREFIX);
      }
 
-   void              DrawRange(const SSessionRange &range)
+   void              DrawRange(const SSessionRange &range, const string tag = "", const color fill = C'30,90,160')
      {
       if(!m_cfg.showVisuals || range.high <= 0.0)
          return;
       const datetime t2 = (range.complete ? range.tEnd : TimeCurrent());
-      Rect("ACC_RANGE", range.tStart, range.high, t2, range.low, C'30,90,160', true);
-      Trend("ACC_HIGH", range.tStart, range.high, t2 + 6 * PeriodSeconds(PERIOD_H1), range.high,
-            clrLime, STYLE_DASH, 1);
-      Trend("ACC_LOW", range.tStart, range.low, t2 + 6 * PeriodSeconds(PERIOD_H1), range.low,
-            clrCrimson, STYLE_DASH, 1);
-      Label("ACC_HIGH_L", range.tStart, range.high, "Buy-side liquidity (session high)",
-            clrLime, ANCHOR_LEFT_LOWER);
-      Label("ACC_LOW_L", range.tStart, range.low, "Sell-side liquidity (session low)",
-            clrCrimson, ANCHOR_LEFT_UPPER);
-      Label("ACC_TITLE", range.tStart, range.high, "ACCUMULATION",
+      const string suffix = (tag == "" ? "" : "_" + tag);
+      Rect("ACC_RANGE" + suffix, range.tStart, range.high, t2, range.low, fill, true);
+      Trend("ACC_HIGH" + suffix, range.tStart, range.high, t2 + 6 * PeriodSeconds(PERIOD_H1), range.high,
+            clrForestGreen, STYLE_DASH, 1);
+      Trend("ACC_LOW" + suffix, range.tStart, range.low, t2 + 6 * PeriodSeconds(PERIOD_H1), range.low,
+            clrFireBrick, STYLE_DASH, 1);
+      Label("ACC_HIGH_L" + suffix, range.tStart, range.high, tag + " Buy-side liquidity (session high)",
+            clrForestGreen, ANCHOR_LEFT_LOWER);
+      Label("ACC_LOW_L" + suffix, range.tStart, range.low, tag + " Sell-side liquidity (session low)",
+            clrFireBrick, ANCHOR_LEFT_UPPER);
+      Label("ACC_TITLE" + suffix, range.tStart, range.high, "ACCUMULATION " + tag,
             clrDodgerBlue, ANCHOR_LEFT_LOWER);
      }
 
-   void              DrawSweep(const SSweepEvent &sweep, const SSessionRange &range)
+   void              DrawSweep(const SSweepEvent &sweep, const SSessionRange &range, const string tag = "")
      {
       if(!m_cfg.showVisuals || !sweep.active)
          return;
       const datetime t1 = sweep.tSweep;
       const datetime t2 = (sweep.tReturned > 0 ? sweep.tReturned : TimeCurrent());
+      const string suffix = (tag == "" ? "" : "_" + tag);
       if(sweep.setupDir == DIR_SELL)
-         Rect("MANIP", t1, sweep.extreme, t2, range.high, C'200,120,20', true);
+         Rect("MANIP" + suffix, t1, sweep.extreme, t2, range.high, C'200,120,20', true);
       else
-         Rect("MANIP", t1, range.low, t2, sweep.extreme, C'200,120,20', true);
-      Label("MANIP_L", t1, sweep.extreme, "MANIPULATION / LIQUIDITY SWEEP",
-            clrOrange, ANCHOR_LEFT_LOWER);
+         Rect("MANIP" + suffix, t1, range.low, t2, sweep.extreme, C'200,120,20', true);
+      Label("MANIP_L" + suffix, t1, sweep.extreme, tag + " MANIPULATION / LIQUIDITY SWEEP",
+            clrOrangeRed, ANCHOR_LEFT_LOWER);
      }
 
-   void              DrawMss(const SStructureShift &mss)
+   void              DrawMss(const SStructureShift &mss, const string tag = "")
      {
       if(!m_cfg.showVisuals || !mss.confirmed)
          return;
-      Arrow("MSS", mss.tShift, mss.brokenLevel, mss.dir);
-      Label("MSS_L", mss.tShift, mss.brokenLevel,
-            "MSS / BOS  " + DirToString(mss.dir),
-            (mss.dir == DIR_BUY ? clrAqua : clrHotPink), ANCHOR_LEFT);
+      const string suffix = (tag == "" ? "" : "_" + tag);
+      Arrow("MSS" + suffix, mss.tShift, mss.brokenLevel, mss.dir);
+      Label("MSS_L" + suffix, mss.tShift, mss.brokenLevel,
+            tag + " MSS / BOS  " + DirToString(mss.dir),
+            (mss.dir == DIR_BUY ? clrTeal : clrMaroon), ANCHOR_LEFT);
       if(mss.hasFvg)
-         Rect("FVG", mss.tShift, mss.fvgTop, TimeCurrent(), mss.fvgBottom, C'80,40,140', true);
+         Rect("FVG" + suffix, mss.tShift, mss.fvgTop, TimeCurrent(), mss.fvgBottom, C'80,40,140', true);
      }
 
    void              DrawTradeLevels(const ENUM_TRADE_DIR dir, const double entry,
@@ -1780,150 +1856,212 @@ public:
       if(!m_cfg.showVisuals || dir == DIR_NONE)
          return;
       const datetime t2 = t + 8 * PeriodSeconds(PERIOD_H1);
-      Trend("ENTRY", t, entry, t2, entry, clrWhite, STYLE_SOLID, 2);
-      Trend("SL", t, sl, t2, sl, clrRed, STYLE_DOT, 1);
-      Trend("TP", t, tp, t2, tp, clrGold, STYLE_DOT, 1);
-      Label("ENTRY_L", t, entry, "ENTRY " + DirToString(dir), clrWhite, ANCHOR_LEFT);
-      Label("SL_L", t, sl, "STOP LOSS", clrRed, ANCHOR_LEFT);
-      Label("TP_L", t, tp, "TAKE PROFIT", clrGold, ANCHOR_LEFT);
+      const color entryClr = (dir == DIR_BUY ? clrTeal : clrMaroon);
+      Trend("ENTRY", t, entry, t2, entry, entryClr, STYLE_SOLID, 2);
+      Trend("SL", t, sl, t2, sl, clrFireBrick, STYLE_DOT, 2);
+      Trend("TP", t, tp, t2, tp, clrDarkGoldenrod, STYLE_DOT, 2);
+      Label("ENTRY_L", t, entry, "ENTRY " + DirToString(dir), entryClr, ANCHOR_LEFT);
+      Label("SL_L", t, sl, "STOP LOSS", clrFireBrick, ANCHOR_LEFT);
+      Label("TP_L", t, tp, "TAKE PROFIT", C'140,90,0', ANCHOR_LEFT);
       Arrow("SIGNAL", t, entry, dir);
      }
 
-   void              DrawDashboard(const ENUM_SESSION_KIND session, const ENUM_AMD_PHASE phase,
+   bool              UseLightPanel(void) const
+     {
+      if(m_cfg.dashTheme == DASH_LIGHT)
+         return(true);
+      if(m_cfg.dashTheme == DASH_DARK)
+         return(false);
+      const color bg = (color)ChartGetInteger(m_chart, CHART_COLOR_BACKGROUND);
+      return(ColorLuma(bg) >= 400);
+     }
+
+   void              DashLabel(const string id, const int x, const int y, const string text,
+                               const color clr, const int size)
+     {
+      const string name = AMD_PREFIX + id;
+      if(ObjectFind(m_chart, name) < 0)
+        {
+         ObjectCreate(m_chart, name, OBJ_LABEL, 0, 0, 0);
+         ObjectSetInteger(m_chart, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+         ObjectSetInteger(m_chart, name, OBJPROP_ANCHOR, ANCHOR_LEFT_UPPER);
+         ObjectSetString(m_chart, name, OBJPROP_FONT, "Consolas");
+         ObjectSetInteger(m_chart, name, OBJPROP_SELECTABLE, false);
+         ObjectSetInteger(m_chart, name, OBJPROP_HIDDEN, true);
+         ObjectSetInteger(m_chart, name, OBJPROP_BACK, false);
+        }
+      ObjectSetInteger(m_chart, name, OBJPROP_XDISTANCE, x);
+      ObjectSetInteger(m_chart, name, OBJPROP_YDISTANCE, y);
+      ObjectSetInteger(m_chart, name, OBJPROP_COLOR, clr);
+      ObjectSetInteger(m_chart, name, OBJPROP_FONTSIZE, size);
+      ObjectSetString(m_chart, name, OBJPROP_TEXT, text);
+     }
+
+   void              DrawDashboard(const ENUM_SESSION_KIND session,
+                                   const string h1status, const string m30status, const string m15status,
                                    const SSessionRange &range, const SHtfBias &bias,
-                                   const SSweepEvent &sweep, const string lastMsg)
+                                   const double nextLot, const string lastMsg)
      {
       if(!m_cfg.showDashboard)
          return;
 
-      const string lines =
-         "AMD SESSION EA\n" +
-         "Session : " + SessionKindToString(session) + "\n" +
-         "Phase   : " + PhaseToString(phase) + "\n" +
-         "HTF bias: " + DirToString(bias.dir) + "\n" +
-         "Range H : " + DoubleToString(range.high, SymbolDigits(m_symbol)) + "\n" +
-         "Range L : " + DoubleToString(range.low,  SymbolDigits(m_symbol)) + "\n" +
-         "Range   : " + DoubleToString(PriceToPoints(m_symbol, range.rangeSize), 1) + " pts\n" +
-         "Sweep   : " + (sweep.active ? DirToString(sweep.setupDir) : "none") +
-         (sweep.returned ? " (returned)" : "") + "\n" +
-         lastMsg;
+      Comment("");
 
-      Comment(lines);
+      const bool light = UseLightPanel();
+      const color panelBg  = (light ? C'255,255,255' : C'12,16,28');
+      const color border   = (light ? C'10,70,150' : clrDodgerBlue);
+      const color titleClr = (light ? C'10,50,120' : clrAqua);
+      const color textClr  = (light ? C'15,25,45' : C'235,240,248');
+      const color muteClr  = (light ? C'70,80,95' : C'170,180,200');
 
       const string box = AMD_PREFIX + "DASH";
       if(ObjectFind(m_chart, box) < 0)
          ObjectCreate(m_chart, box, OBJ_RECTANGLE_LABEL, 0, 0, 0);
       ObjectSetInteger(m_chart, box, OBJPROP_CORNER, CORNER_LEFT_UPPER);
-      ObjectSetInteger(m_chart, box, OBJPROP_XDISTANCE, 12);
-      ObjectSetInteger(m_chart, box, OBJPROP_YDISTANCE, 22);
-      ObjectSetInteger(m_chart, box, OBJPROP_XSIZE, 280);
-      ObjectSetInteger(m_chart, box, OBJPROP_YSIZE, 188);
-      ObjectSetInteger(m_chart, box, OBJPROP_BGCOLOR, C'12,16,28');
-      ObjectSetInteger(m_chart, box, OBJPROP_BORDER_COLOR, clrDodgerBlue);
-      ObjectSetInteger(m_chart, box, OBJPROP_COLOR, clrWhite);
+      ObjectSetInteger(m_chart, box, OBJPROP_XDISTANCE, 10);
+      ObjectSetInteger(m_chart, box, OBJPROP_YDISTANCE, 18);
+      ObjectSetInteger(m_chart, box, OBJPROP_XSIZE, 340);
+      ObjectSetInteger(m_chart, box, OBJPROP_YSIZE, 268);
+      ObjectSetInteger(m_chart, box, OBJPROP_BGCOLOR, panelBg);
+      ObjectSetInteger(m_chart, box, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+      ObjectSetInteger(m_chart, box, OBJPROP_BORDER_COLOR, border);
+      ObjectSetInteger(m_chart, box, OBJPROP_COLOR, border);
+      ObjectSetInteger(m_chart, box, OBJPROP_WIDTH, 2);
       ObjectSetInteger(m_chart, box, OBJPROP_BACK, false);
       ObjectSetInteger(m_chart, box, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(m_chart, box, OBJPROP_HIDDEN, true);
+
+      const int x = 22;
+      int y = 28;
+      const int step = 16;
+      DashLabel("D_TITLE", x, y, "AMD  XAUUSDm  SESSION BOT", titleClr, 11); y += step + 4;
+      DashLabel("D_SYM",   x, y, "Symbol  : " + m_symbol, textClr, 9); y += step;
+      DashLabel("D_SES",   x, y, "Session : " + SessionKindToString(session), textClr, 9); y += step;
+      DashLabel("D_H1",    x, y, "H1      : " + h1status, textClr, 9); y += step;
+      DashLabel("D_M30",   x, y, "M30     : " + m30status, textClr, 9); y += step;
+      DashLabel("D_M15",   x, y, "M15     : " + m15status, textClr, 9); y += step;
+      DashLabel("D_BIAS",  x, y, "Bias    : " + DirToString(bias.dir), textClr, 9); y += step;
+      DashLabel("D_RH",    x, y, "Range H : " + DoubleToString(range.high, SymbolDigits(m_symbol)), textClr, 9); y += step;
+      DashLabel("D_RL",    x, y, "Range L : " + DoubleToString(range.low,  SymbolDigits(m_symbol)), textClr, 9); y += step;
+      DashLabel("D_LOT",   x, y, "Next lot: " + DoubleToString(nextLot, 2), textClr, 9); y += step;
+      DashLabel("D_MSG",   x, y, lastMsg, muteClr, 8);
+      ChartRedraw(m_chart);
      }
   };
 
 
 //+------------------------------------------------------------------+
-//| Inputs, state machine, OnInit / OnTick
+//| Inputs, multi-TF state machine, OnInit / OnTick
 //+------------------------------------------------------------------+
 
 input group "=== General ==="
-input long               InpMagic              = 240824;           // Magic number
-input string             InpComment            = "AMD_EA";         // Order comment
-input bool               InpAllowBuy           = true;             // Allow BUY trades
-input bool               InpAllowSell          = true;             // Allow SELL trades
-input bool               InpTradeOnBarClose    = true;             // Evaluate on new LTF bar only
-input bool               InpDebugLog           = false;            // Print debug logs
+input string             InpTradeSymbol        = "XAUUSDm";        // Trade this symbol only
+input long               InpMagic              = 240824;
+input string             InpComment            = "AMD_XAU";
+input bool               InpAllowBuy           = true;
+input bool               InpAllowSell          = true;
+input bool               InpTradeOnBarClose    = true;
+input bool               InpDebugLog           = false;
 
-//--- Sessions (broker server time)
+input group "=== Setup timeframes ==="
+input bool               InpUseH1              = true;             // Scan H1
+input bool               InpUseM30             = true;             // Scan M30
+input bool               InpUseM15             = true;             // Scan M15
+input ENUM_TF_PRIORITY   InpTfPriority         = TF_PRIORITY_H1;   // Which TF wins if several are ready
+
 input group "=== Sessions (server time) ==="
-input int                InpAsiaStartHour      = 0;                // Accumulation start hour
-input int                InpAsiaStartMinute    = 0;                // Accumulation start minute
-input int                InpAsiaEndHour        = 8;                // Accumulation end hour
-input int                InpAsiaEndMinute      = 0;                // Accumulation end minute
-input int                InpLondonStartHour    = 8;                // London start hour
-input int                InpLondonStartMinute  = 0;                // London start minute
-input int                InpLondonEndHour      = 12;               // London end hour
-input int                InpLondonEndMinute    = 0;                // London end minute
-input int                InpNYStartHour        = 12;               // New York start hour
-input int                InpNYStartMinute      = 0;                // New York start minute
-input int                InpNYEndHour          = 17;               // New York end hour
-input int                InpNYEndMinute        = 0;                // New York end minute
-input bool               InpTradeLondon        = true;             // Allow entries during London
-input bool               InpTradeNewYork       = true;             // Allow entries during New York
-input bool               InpCloseFriday        = true;             // Flatten before weekend
-input int                InpFridayCloseHour    = 21;               // Friday flatten hour
-input int                InpFridayCloseMinute  = 0;                // Friday flatten minute
+input int                InpAsiaStartHour      = 0;
+input int                InpAsiaStartMinute    = 0;
+input int                InpAsiaEndHour        = 8;
+input int                InpAsiaEndMinute      = 0;
+input int                InpLondonStartHour    = 8;
+input int                InpLondonStartMinute  = 0;
+input int                InpLondonEndHour      = 12;
+input int                InpLondonEndMinute    = 0;
+input int                InpNYStartHour        = 12;
+input int                InpNYStartMinute      = 0;
+input int                InpNYEndHour          = 17;
+input int                InpNYEndMinute        = 0;
+input bool               InpTradeLondon        = true;
+input bool               InpTradeNewYork       = true;
+input bool               InpCloseFriday        = true;
+input int                InpFridayCloseHour    = 21;
+input int                InpFridayCloseMinute  = 0;
 
-//--- Timeframes / structure
 input group "=== Timeframes & Structure ==="
-input ENUM_TIMEFRAMES    InpHTF                = PERIOD_H1;        // Higher timeframe (bias)
-input ENUM_TIMEFRAMES    InpLTF                = PERIOD_M5;        // Lower timeframe (entry)
-input int                InpHtfLookback        = 80;               // HTF bars to scan
-input int                InpLtfLookback        = 250;              // LTF bars to scan
-input int                InpSwingStrength      = 2;                // Fractal swing strength
-input int                InpEqualLookback      = 40;               // Bars for equal H/L scan
-input double             InpEqualTolPoints     = 20;               // Equal H/L tolerance (points)
-input ENUM_HTF_BIAS_MODE InpHtfBiasMode        = BIAS_OFF;         // HTF directional filter
+input ENUM_TIMEFRAMES    InpHTF                = PERIOD_H4;        // Optional higher-TF bias
+input int                InpHtfLookback        = 80;
+input int                InpLtfLookback        = 250;
+input int                InpSwingStrength      = 2;
+input int                InpEqualLookback      = 40;
+input double             InpEqualTolPoints     = 30;
+input ENUM_HTF_BIAS_MODE InpHtfBiasMode        = BIAS_OFF;
 
-//--- Accumulation / manipulation
 input group "=== Accumulation & Liquidity Sweep ==="
-input double             InpMinRangePoints     = 50;               // Min accumulation range (points)
-input double             InpMaxRangePoints     = 800;              // Max accumulation range (0=off)
-input int                InpMinAccBars         = 4;                // Min bars inside accumulation
-input double             InpMinSweepPoints     = 5;                // Min pierce beyond the level
-input double             InpSweepBufferPoints  = 0;                // Extra buffer beyond high/low
-input ENUM_SWEEP_RETURN  InpSweepReturnMode    = RETURN_INSIDE_RANGE; // Sweep return rule
-input bool               InpRequireRejection   = true;             // Require LH/HL rejection after sweep
-input ENUM_CONFIRM_MODE  InpConfirmMode        = CONFIRM_BOS;      // Structure confirmation mode
-input bool               InpRequireDisplacement= false;            // Require displacement candle
-input double             InpDispAtrMult        = 0.8;              // Displacement body >= ATR *
-input int                InpAtrPeriod          = 14;               // ATR period
+input double             InpMinRangePoints     = 300;              // Gold: min Asia range (points)
+input double             InpMaxRangePoints     = 8000;             // Gold: max Asia range (0=off)
+input int                InpMinAccBars         = 3;
+input double             InpMinSweepPoints     = 20;
+input double             InpSweepBufferPoints  = 0;
+input ENUM_SWEEP_RETURN  InpSweepReturnMode    = RETURN_INSIDE_RANGE;
+input bool               InpRequireRejection   = true;
+input ENUM_CONFIRM_MODE  InpConfirmMode        = CONFIRM_BOS;
+input bool               InpRequireDisplacement= false;
+input double             InpDispAtrMult        = 0.8;
+input int                InpAtrPeriod          = 14;
 
-//--- Entry
 input group "=== Entry ==="
-input ENUM_ENTRY_MODE    InpEntryMode          = ENTRY_MARKET;     // Entry style
-input int                InpMaxBarsAfterMss    = 12;               // Expire setup after N LTF bars
-input int                InpRetestMaxBars      = 8;                // Max bars to wait for retest/FVG
-input double             InpFvgMinPoints       = 10;               // Ignore tiny FVGs
+input ENUM_ENTRY_MODE    InpEntryMode          = ENTRY_MARKET;
+input int                InpMaxBarsAfterMss    = 12;
+input int                InpRetestMaxBars      = 8;
+input double             InpFvgMinPoints       = 10;
 
-//--- Risk / money management
 input group "=== Risk & Trade Management ==="
-input ENUM_LOT_MODE      InpLotMode            = LOT_RISK_PERCENT; // Position sizing
-input double             InpFixedLots          = 0.10;             // Fixed lot size
-input double             InpRiskPercent        = 0.5;              // Risk percent of balance
-input double             InpMaxLot             = 2.0;              // Cap on calculated lots
-input double             InpSlBufferPoints     = 30;               // SL buffer beyond sweep extreme
-input double             InpMaxSlPoints        = 400;              // Skip if SL wider than this
-input double             InpMinSlPoints        = 40;               // Skip if SL tighter than this
-input ENUM_TP_MODE       InpTpMode             = TP_HYBRID;        // Take-profit method
-input double             InpRiskReward         = 2.0;              // RR multiple (1.5 / 2 / 3 / 4)
-input bool               InpUsePartialClose    = true;             // Partial close enabled
-input double             InpPartialPercent     = 50;               // Close this % at first target
-input double             InpPartialRR          = 2.0;              // First partial at this RR
-input bool               InpMoveBeAfterPartial = true;             // Move SL to BE after partial
-input double             InpBeOffsetPoints     = 5;                // BE offset (points)
-input int                InpMaxTradesPerDay    = 1;                // Daily trade cap
-input int                InpMaxOpenPositions   = 1;                // Max concurrent positions
-input bool               InpOneTradePerCycle   = true;             // One setup per AMD cycle
+input ENUM_LOT_MODE      InpLotMode            = LOT_BALANCE_SCALE;// 0.01 then scale with balance
+input double             InpStartLots          = 0.01;             // Starting lot
+input double             InpBalancePerLot      = 100.0;            // Add 0.01 lot per this balance
+input double             InpFixedLots          = 0.01;
+input double             InpRiskPercent        = 0.5;
+input double             InpMaxLot             = 2.0;
+input double             InpSlBufferPoints     = 80;
+input double             InpMaxSlPoints        = 3000;
+input double             InpMinSlPoints        = 50;
+input ENUM_TP_MODE       InpTpMode             = TP_HYBRID;
+input double             InpRiskReward         = 2.0;
+input bool               InpUsePartialClose    = true;
+input double             InpPartialPercent     = 50;
+input double             InpPartialRR          = 2.0;
+input bool               InpMoveBeAfterPartial = true;
+input double             InpBeOffsetPoints     = 10;
+input int                InpMaxTradesPerDay    = 1;
+input int                InpMaxOpenPositions   = 1;
+input bool               InpOneTradePerCycle   = true;
 
-//--- Filters
 input group "=== Quality Filters ==="
-input double             InpMaxSpreadPoints    = 35;               // Max spread (points)
-input double             InpMaxAtrPoints       = 0;                // Max ATR in points (0=off)
-input double             InpMinAtrPoints       = 0;                // Min ATR in points (0=off)
-input bool               InpSkipHighVol        = true;             // Skip abnormally high ATR
-input double             InpVolAtrMult         = 2.5;              // High-vol if ATR > avg * this
+input double             InpMaxSpreadPoints    = 80;
+input double             InpMaxAtrPoints       = 0;
+input double             InpMinAtrPoints       = 0;
+input bool               InpSkipHighVol        = true;
+input double             InpVolAtrMult         = 2.5;
 
-//--- Visuals
 input group "=== Chart Visuals ==="
-input bool               InpShowVisuals        = true;             // Draw AMD objects
-input bool               InpShowDashboard      = true;             // Show on-chart dashboard
-input bool               InpShowLiqLabels      = true;             // Label liquidity levels
+input bool               InpShowVisuals        = true;
+input bool               InpShowDashboard      = true;
+input ENUM_DASH_THEME    InpDashTheme          = DASH_LIGHT;       // Light panel for white charts
+input bool               InpShowLiqLabels      = true;
+
+struct STfState
+  {
+   ENUM_TIMEFRAMES   tf;
+   bool              enabled;
+   datetime          lastBar;
+   int               atrHandle;
+   ENUM_AMD_PHASE    phase;
+   SSessionRange     range;
+   SSweepEvent       sweep;
+   SStructureShift   mss;
+   SPendingSetup     pending;
+  };
 
 SAmdConfig         g_cfg;
 CSessionManager    g_sessions;
@@ -1932,29 +2070,27 @@ CStructureEngine   g_structure;
 CAmdTrader         g_trader;
 CAmdVisuals        g_visuals;
 
-ENUM_AMD_PHASE     g_phase          = PHASE_IDLE;
-SSessionRange      g_range;
-SSweepEvent        g_sweep;
-SStructureShift    g_mss;
-SPendingSetup      g_pending;
+STfState           g_tf[AMD_TF_COUNT];
 SHtfBias           g_bias;
 datetime           g_cycleStart     = 0;
-datetime           g_lastLtfBar     = 0;
 string             g_lastMsg        = "";
 double             g_lastEntry      = 0;
 double             g_lastSl         = 0;
 double             g_lastTp         = 0;
 ENUM_TRADE_DIR     g_lastDir        = DIR_NONE;
 datetime           g_lastTradeTime  = 0;
-int                g_atrHandle      = INVALID_HANDLE;
 
-//+------------------------------------------------------------------+
 void FillConfig(void)
   {
    g_cfg.magic                 = InpMagic;
    g_cfg.tradeComment          = InpComment;
+   g_cfg.tradeSymbol           = InpTradeSymbol;
    g_cfg.allowBuy              = InpAllowBuy;
    g_cfg.allowSell             = InpAllowSell;
+   g_cfg.useM15                = InpUseM15;
+   g_cfg.useM30                = InpUseM30;
+   g_cfg.useH1                 = InpUseH1;
+   g_cfg.tfPriority            = InpTfPriority;
    g_cfg.asiaStartHour         = InpAsiaStartHour;
    g_cfg.asiaStartMinute       = InpAsiaStartMinute;
    g_cfg.asiaEndHour           = InpAsiaEndHour;
@@ -1973,7 +2109,7 @@ void FillConfig(void)
    g_cfg.fridayCloseHour       = InpFridayCloseHour;
    g_cfg.fridayCloseMinute     = InpFridayCloseMinute;
    g_cfg.htf                   = InpHTF;
-   g_cfg.ltf                   = InpLTF;
+   g_cfg.ltf                   = PERIOD_M15;
    g_cfg.htfLookback           = InpHtfLookback;
    g_cfg.ltfLookback           = InpLtfLookback;
    g_cfg.swingStrength         = InpSwingStrength;
@@ -1997,6 +2133,8 @@ void FillConfig(void)
    g_cfg.fvgMinPoints          = InpFvgMinPoints;
    g_cfg.lotMode               = InpLotMode;
    g_cfg.fixedLots             = InpFixedLots;
+   g_cfg.startLots             = InpStartLots;
+   g_cfg.balancePerLot         = InpBalancePerLot;
    g_cfg.riskPercent           = InpRiskPercent;
    g_cfg.maxLot                = InpMaxLot;
    g_cfg.slBufferPoints        = InpSlBufferPoints;
@@ -2020,41 +2158,48 @@ void FillConfig(void)
    g_cfg.showVisuals           = InpShowVisuals;
    g_cfg.showDashboard         = InpShowDashboard;
    g_cfg.showLiquidityLabels   = InpShowLiqLabels;
+   g_cfg.dashTheme             = InpDashTheme;
    g_cfg.debugLog              = InpDebugLog;
    g_cfg.tradeOnBarClose       = InpTradeOnBarClose;
   }
 
+void ResetTf(STfState &st)
+  {
+   st.phase = PHASE_IDLE;
+   ZeroMemory(st.range);
+   ZeroMemory(st.sweep);
+   ZeroMemory(st.mss);
+   ZeroMemory(st.pending);
+  }
+
 void ResetCycle(const datetime newStart, const string why)
   {
-   g_phase       = PHASE_IDLE;
-   ZeroMemory(g_range);
-   ZeroMemory(g_sweep);
-   ZeroMemory(g_mss);
-   ZeroMemory(g_pending);
-   g_cycleStart  = newStart;
-   g_lastMsg     = why;
+   for(int i = 0; i < AMD_TF_COUNT; i++)
+      ResetTf(g_tf[i]);
+   g_cycleStart = newStart;
+   g_lastMsg    = why;
    g_trader.ResetCycleFlags();
    DebugPrint(g_cfg, "Cycle reset: " + why);
   }
 
-bool LoadLtf(MqlRates &rates[], int &copied)
+bool LoadRates(const ENUM_TIMEFRAMES tf, MqlRates &rates[], int &copied)
   {
    ArraySetAsSeries(rates, true);
-   copied = CopyRates(_Symbol, g_cfg.ltf, 0, g_cfg.ltfLookback, rates);
+   copied = CopyRates(_Symbol, tf, 0, g_cfg.ltfLookback, rates);
    return(copied > g_cfg.swingStrength * 4);
   }
 
-double LtfAtr(void)
+double TfAtr(const STfState &st)
   {
-   if(g_atrHandle == INVALID_HANDLE)
+   if(st.atrHandle == INVALID_HANDLE)
       return(0.0);
    double buf[];
-   if(CopyBuffer(g_atrHandle, 0, 0, 1, buf) < 1)
+   if(CopyBuffer(st.atrHandle, 0, 0, 1, buf) < 1)
       return(0.0);
    return(buf[0]);
   }
 
-bool PassesFilters(string &reason)
+bool PassesFilters(const STfState &st, string &reason)
   {
    const double spread = CurrentSpreadPoints(_Symbol);
    if(g_cfg.maxSpreadPoints > 0.0 && spread > g_cfg.maxSpreadPoints)
@@ -2063,7 +2208,7 @@ bool PassesFilters(string &reason)
       return(false);
      }
 
-   const double atr = LtfAtr();
+   const double atr = TfAtr(st);
    const double atrPts = PriceToPoints(_Symbol, atr);
    if(g_cfg.maxAtrPoints > 0.0 && atrPts > g_cfg.maxAtrPoints)
      {
@@ -2075,11 +2220,11 @@ bool PassesFilters(string &reason)
       reason = "ATR too low";
       return(false);
      }
-   if(g_cfg.skipHighVolatility && g_atrHandle != INVALID_HANDLE)
+   if(g_cfg.skipHighVolatility && st.atrHandle != INVALID_HANDLE)
      {
       double buf[];
       const int n = 50;
-      if(CopyBuffer(g_atrHandle, 0, 0, n, buf) >= n)
+      if(CopyBuffer(st.atrHandle, 0, 0, n, buf) >= n)
         {
          double sum = 0.0;
          for(int i = 0; i < n; i++)
@@ -2111,42 +2256,56 @@ bool PriceTouchesZone(const MqlRates &bar, const double zHigh, const double zLow
    return(!(bar.low > zHigh || bar.high < zLow));
   }
 
-void ArmSetup(const MqlRates &ltf[])
+string TfStatus(const STfState &st)
   {
-   g_pending.armed         = true;
-   g_pending.dir           = g_mss.dir;
-   g_pending.tArmed        = ltf[1].time;
-   g_pending.barsWaited    = 0;
-   g_pending.entryZoneHigh = g_mss.entryZoneHigh;
-   g_pending.entryZoneLow  = g_mss.entryZoneLow;
-   g_pending.slPrice       = g_trader.SlFromSweep(g_mss.dir, g_sweep);
+   if(!st.enabled)
+      return("off");
+   string s = PhaseToString(st.phase);
+   if(st.sweep.active)
+      s += " " + DirToString(st.sweep.setupDir);
+   if(st.sweep.returned)
+      s += " returned";
+   if(st.pending.armed)
+      s += " ARMED";
+   return(s);
+  }
+
+void ArmSetup(STfState &st, const MqlRates &rates[])
+  {
+   st.pending.armed         = true;
+   st.pending.dir           = st.mss.dir;
+   st.pending.tArmed        = rates[1].time;
+   st.pending.barsWaited    = 0;
+   st.pending.entryZoneHigh = st.mss.entryZoneHigh;
+   st.pending.entryZoneLow  = st.mss.entryZoneLow;
+   st.pending.slPrice       = g_trader.SlFromSweep(st.mss.dir, st.sweep);
    const double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    const double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-   const double entryPx = (g_mss.dir == DIR_BUY ? ask : bid);
-   g_pending.liquidityTarget = g_liq.NextLiquidityTarget(g_mss.dir, entryPx, g_range);
-   g_pending.tpPrice = g_trader.TpFromMode(g_mss.dir, entryPx, g_pending.slPrice, g_pending.liquidityTarget);
-   g_phase = PHASE_CONFIRMATION;
-   g_lastMsg = "Structure confirmed. Setup armed (" + DirToString(g_mss.dir) + ")";
+   const double entryPx = (st.mss.dir == DIR_BUY ? ask : bid);
+   st.pending.liquidityTarget = g_liq.NextLiquidityTarget(st.mss.dir, entryPx, st.range);
+   st.pending.tpPrice = g_trader.TpFromMode(st.mss.dir, entryPx, st.pending.slPrice, st.pending.liquidityTarget);
+   st.phase = PHASE_CONFIRMATION;
+   g_lastMsg = TfToString(st.tf) + " structure confirmed (" + DirToString(st.mss.dir) + ")";
    DebugPrint(g_cfg, g_lastMsg);
   }
 
-void TryEnter(const MqlRates &ltf[])
+bool TryEnter(STfState &st, const MqlRates &rates[])
   {
-   if(!g_pending.armed)
-      return;
-   if(g_cfg.oneTradePerCycle && g_phase == PHASE_CYCLE_COMPLETE)
-      return;
+   if(!st.pending.armed)
+      return(false);
+   if(g_cfg.oneTradePerCycle && g_trader.HasOpenPosition())
+      return(false);
 
    string reason;
-   if(!PassesFilters(reason))
+   if(!PassesFilters(st, reason))
      {
-      g_lastMsg = reason;
-      return;
+      g_lastMsg = TfToString(st.tf) + " " + reason;
+      return(false);
      }
-   if(!g_structure.DirectionAllowed(g_pending.dir, g_bias))
+   if(!g_structure.DirectionAllowed(st.pending.dir, g_bias))
      {
-      g_lastMsg = "HTF bias filter blocked " + DirToString(g_pending.dir);
-      return;
+      g_lastMsg = TfToString(st.tf) + " HTF bias blocked " + DirToString(st.pending.dir);
+      return(false);
      }
 
    bool fire = false;
@@ -2154,56 +2313,195 @@ void TryEnter(const MqlRates &ltf[])
       fire = true;
    else
      {
-      if(PriceTouchesZone(ltf[1], g_pending.entryZoneHigh, g_pending.entryZoneLow) ||
-         PriceTouchesZone(ltf[0], g_pending.entryZoneHigh, g_pending.entryZoneLow))
+      if(PriceTouchesZone(rates[1], st.pending.entryZoneHigh, st.pending.entryZoneLow) ||
+         PriceTouchesZone(rates[0], st.pending.entryZoneHigh, st.pending.entryZoneLow))
          fire = true;
-      g_pending.barsWaited++;
-      if(!fire && g_pending.barsWaited > g_cfg.retestMaxBars)
+      st.pending.barsWaited++;
+      if(!fire && st.pending.barsWaited > g_cfg.retestMaxBars)
         {
-         g_lastMsg = "Retest/FVG timeout — setup cancelled";
-         g_pending.armed = false;
-         g_phase = PHASE_RANGE_SET;
-         ZeroMemory(g_sweep);
-         ZeroMemory(g_mss);
-         return;
+         g_lastMsg = TfToString(st.tf) + " retest timeout";
+         st.pending.armed = false;
+         st.phase = PHASE_RANGE_SET;
+         ZeroMemory(st.sweep);
+         ZeroMemory(st.mss);
+         return(false);
         }
      }
 
-   if(g_cfg.maxBarsAfterMss > 0 && g_pending.barsWaited > g_cfg.maxBarsAfterMss)
+   if(g_cfg.maxBarsAfterMss > 0 && st.pending.barsWaited > g_cfg.maxBarsAfterMss)
      {
-      g_lastMsg = "Confirmation expired";
-      g_pending.armed = false;
-      return;
+      g_lastMsg = TfToString(st.tf) + " confirmation expired";
+      st.pending.armed = false;
+      return(false);
      }
 
    if(!fire)
-      return;
+      return(false);
 
-   const string cmt = g_cfg.tradeComment + " " + DirToString(g_pending.dir);
-   if(!g_trader.OpenTrade(g_pending.dir, g_pending.slPrice, g_pending.tpPrice, cmt, reason))
+   const string cmt = g_cfg.tradeComment + " " + TfToString(st.tf) + " " + DirToString(st.pending.dir);
+   if(!g_trader.OpenTrade(st.pending.dir, st.pending.slPrice, st.pending.tpPrice, cmt, reason))
      {
-      g_lastMsg = "Entry skipped: " + reason;
+      g_lastMsg = TfToString(st.tf) + " skipped: " + reason;
       DebugPrint(g_cfg, g_lastMsg);
-      // Permanent skip only when SL/risk is invalid; keep waiting on spread blips
       if(StringFind(reason, "SL ") >= 0 || StringFind(reason, "Lot size") >= 0)
         {
-         g_pending.armed = false;
-         g_phase = PHASE_CYCLE_COMPLETE;
+         st.pending.armed = false;
+         st.phase = PHASE_CYCLE_COMPLETE;
         }
-      return;
+      return(false);
      }
 
-   g_lastDir       = g_pending.dir;
-   g_lastEntry     = (g_pending.dir == DIR_BUY ? SymbolInfoDouble(_Symbol, SYMBOL_ASK)
-                                               : SymbolInfoDouble(_Symbol, SYMBOL_BID));
-   g_lastSl        = g_pending.slPrice;
-   g_lastTp        = g_pending.tpPrice;
+   g_lastDir       = st.pending.dir;
+   g_lastEntry     = (st.pending.dir == DIR_BUY ? SymbolInfoDouble(_Symbol, SYMBOL_ASK)
+                                                : SymbolInfoDouble(_Symbol, SYMBOL_BID));
+   g_lastSl        = st.pending.slPrice;
+   g_lastTp        = st.pending.tpPrice;
    g_lastTradeTime = TimeCurrent();
-   g_pending.armed = false;
-   g_phase         = (g_cfg.oneTradePerCycle ? PHASE_CYCLE_COMPLETE : PHASE_IN_TRADE);
-   g_lastMsg       = "DISTRIBUTION entry " + DirToString(g_lastDir);
+   st.pending.armed = false;
+   st.phase         = PHASE_CYCLE_COMPLETE;
+   if(g_cfg.oneTradePerCycle)
+     {
+      for(int i = 0; i < AMD_TF_COUNT; i++)
+        {
+         g_tf[i].pending.armed = false;
+         g_tf[i].phase = PHASE_CYCLE_COMPLETE;
+        }
+     }
+   g_lastMsg = "DISTRIBUTION " + TfToString(st.tf) + " " + DirToString(g_lastDir) +
+               " lot " + DoubleToString(g_trader.PreviewLot(), 2);
    g_visuals.DrawTradeLevels(g_lastDir, g_lastEntry, g_lastSl, g_lastTp, g_lastTradeTime);
    DebugPrint(g_cfg, g_lastMsg);
+   return(true);
+  }
+
+void ProcessTf(STfState &st)
+  {
+   if(!st.enabled)
+      return;
+
+   const datetime now = TimeCurrent();
+   MqlRates rates[];
+   int copied = 0;
+   if(!LoadRates(st.tf, rates, copied))
+      return;
+
+   g_sessions.BuildRange(now, st.range, st.tf);
+   const ENUM_SESSION_KIND session = g_sessions.CurrentSession(now);
+
+   if(g_trader.HasOpenPosition() && st.phase != PHASE_CYCLE_COMPLETE)
+      st.phase = PHASE_IN_TRADE;
+   else if(st.phase == PHASE_IN_TRADE && !g_cfg.oneTradePerCycle)
+      st.phase = PHASE_RANGE_SET;
+
+   if(session == SESSION_ASIA)
+     {
+      if(st.phase == PHASE_IDLE || st.phase == PHASE_RANGE_INVALID || st.phase == PHASE_RANGE_SET)
+         st.phase = PHASE_ACCUMULATION;
+     }
+   else
+     {
+      if(st.range.valid && (st.phase == PHASE_IDLE || st.phase == PHASE_ACCUMULATION))
+         st.phase = PHASE_RANGE_SET;
+      else if(!st.range.valid && st.range.complete &&
+              (st.phase == PHASE_IDLE || st.phase == PHASE_ACCUMULATION))
+        {
+         st.phase = PHASE_RANGE_INVALID;
+        }
+     }
+
+   if(st.range.valid)
+      g_liq.BuildFromRange(st.range, rates, copied);
+
+   if(st.range.valid &&
+      st.phase != PHASE_CYCLE_COMPLETE &&
+      st.phase != PHASE_RANGE_INVALID &&
+      st.phase != PHASE_ACCUMULATION)
+     {
+      const MqlRates bar = rates[g_cfg.tradeOnBarClose ? 1 : 0];
+
+      if(!st.sweep.active)
+        {
+         SSweepEvent ev;
+         ZeroMemory(ev);
+         if(g_liq.DetectSweep(bar, st.range, ev))
+           {
+            st.sweep = ev;
+            st.phase = PHASE_MANIPULATION;
+            g_lastMsg = TfToString(st.tf) + " liquidity sweep (" + DirToString(st.sweep.setupDir) + ")";
+            ZeroMemory(st.mss);
+            ZeroMemory(st.pending);
+           }
+        }
+      else
+        {
+         SSweepEvent ev;
+         ZeroMemory(ev);
+         if(g_liq.DetectSweep(bar, st.range, ev) &&
+            ev.setupDir != st.sweep.setupDir &&
+            !st.sweep.returned)
+           {
+            st.sweep = ev;
+            st.phase = PHASE_MANIPULATION;
+            g_lastMsg = TfToString(st.tf) + " opposite sweep -> " + DirToString(st.sweep.setupDir);
+            ZeroMemory(st.mss);
+            ZeroMemory(st.pending);
+           }
+         else
+           {
+            if(st.sweep.setupDir == DIR_SELL && bar.high > st.sweep.extreme)
+               st.sweep.extreme = bar.high;
+            if(st.sweep.setupDir == DIR_BUY && bar.low < st.sweep.extreme)
+               st.sweep.extreme = bar.low;
+            g_liq.UpdateReturn(bar, st.range, st.sweep);
+           }
+        }
+
+      if(st.sweep.active && st.sweep.returned && !st.mss.confirmed && !st.pending.armed)
+        {
+         const double atr = TfAtr(st);
+         if(g_structure.ConfirmShift(rates, copied, st.sweep, st.range, atr, st.mss))
+            ArmSetup(st, rates);
+         else
+            g_lastMsg = TfToString(st.tf) + " waiting for market-structure confirmation";
+        }
+     }
+
+   const color fill = (st.tf == PERIOD_H1 ? C'30,90,160' : (st.tf == PERIOD_M30 ? C'20,120,110' : C'90,90,140'));
+   g_visuals.DrawRange(st.range, TfToString(st.tf), fill);
+   g_visuals.DrawSweep(st.sweep, st.range, TfToString(st.tf));
+   g_visuals.DrawMss(st.mss, TfToString(st.tf));
+  }
+
+int PriorityIndex(const int slot)
+  {
+   // slot 0 = first to try
+   if(g_cfg.tfPriority == TF_PRIORITY_M30)
+     {
+      if(slot == 0) return(1);
+      if(slot == 1) return(0);
+      return(2);
+     }
+   if(g_cfg.tfPriority == TF_PRIORITY_M15)
+     {
+      if(slot == 0) return(2);
+      if(slot == 1) return(1);
+      return(0);
+     }
+   return(slot); // H1, M30, M15 stored in that order
+  }
+
+void RefreshDashboard(void)
+  {
+   SSessionRange shown = g_tf[0].range;
+   if(!shown.valid)
+      shown = g_tf[1].range;
+   if(!shown.valid)
+      shown = g_tf[2].range;
+   g_visuals.DrawDashboard(g_sessions.CurrentSession(TimeCurrent()),
+                           TfStatus(g_tf[0]), TfStatus(g_tf[1]), TfStatus(g_tf[2]),
+                           shown, g_bias, g_trader.PreviewLot(), g_lastMsg);
+   if(g_lastDir != DIR_NONE)
+      g_visuals.DrawTradeLevels(g_lastDir, g_lastEntry, g_lastSl, g_lastTp, g_lastTradeTime);
   }
 
 void ProcessLogic(void)
@@ -2214,142 +2512,89 @@ void ProcessLogic(void)
    if(accStart != 0 && accStart != g_cycleStart)
       ResetCycle(accStart, "New accumulation session");
 
-   MqlRates ltf[];
-   int copied = 0;
-   if(!LoadLtf(ltf, copied))
-     {
-      g_lastMsg = "Not enough LTF bars";
-      return;
-     }
-
    g_bias = g_structure.ComputeHtfBias();
-   g_sessions.BuildRange(now, g_range);
 
-   const ENUM_SESSION_KIND session = g_sessions.CurrentSession(now);
-
-   if(g_trader.HasOpenPosition())
+   for(int i = 0; i < AMD_TF_COUNT; i++)
      {
-      if(g_phase != PHASE_CYCLE_COMPLETE)
-         g_phase = PHASE_IN_TRADE;
+      if(!g_tf[i].enabled)
+         continue;
+      bool run = true;
+      if(g_cfg.tradeOnBarClose)
+         run = IsNewBar(_Symbol, g_tf[i].tf, g_tf[i].lastBar);
+      if(run || g_sessions.CurrentSession(now) == SESSION_ASIA)
+         ProcessTf(g_tf[i]);
      }
-   else if(g_phase == PHASE_IN_TRADE && !g_cfg.oneTradePerCycle)
-      g_phase = PHASE_RANGE_SET;
 
-   // --- Phase machine ---
-   if(session == SESSION_ASIA)
+   if(!g_trader.HasOpenPosition())
      {
-      if(g_phase == PHASE_IDLE || g_phase == PHASE_RANGE_INVALID || g_phase == PHASE_RANGE_SET)
-         g_phase = PHASE_ACCUMULATION;
-     }
-   else
-     {
-      if(g_range.valid && (g_phase == PHASE_IDLE || g_phase == PHASE_ACCUMULATION))
-         g_phase = PHASE_RANGE_SET;
-      else if(!g_range.valid && g_range.complete &&
-              (g_phase == PHASE_IDLE || g_phase == PHASE_ACCUMULATION))
+      for(int slot = 0; slot < AMD_TF_COUNT; slot++)
         {
-         g_phase = PHASE_RANGE_INVALID;
-         g_lastMsg = "Accumulation range rejected by size/bar filters";
+         const int i = (g_cfg.tfPriority == TF_PRIORITY_FIRST_READY ? slot : PriorityIndex(slot));
+         if(!g_tf[i].enabled || !g_tf[i].pending.armed)
+            continue;
+         MqlRates rates[];
+         int copied = 0;
+         if(!LoadRates(g_tf[i].tf, rates, copied))
+            continue;
+         if(TryEnter(g_tf[i], rates))
+            break;
         }
      }
 
-   if(g_range.valid)
-      g_liq.BuildFromRange(g_range, ltf, copied);
-
-   // Never assume a sweep. Wait for actual price action on closed (or current) bars.
-   if(g_range.valid &&
-      g_phase != PHASE_CYCLE_COMPLETE &&
-      g_phase != PHASE_RANGE_INVALID &&
-      g_phase != PHASE_ACCUMULATION)
-     {
-      const MqlRates bar = ltf[g_cfg.tradeOnBarClose ? 1 : 0];
-
-      if(!g_sweep.active)
-        {
-         SSweepEvent ev;
-         ZeroMemory(ev);
-         if(g_liq.DetectSweep(bar, g_range, ev))
-           {
-            g_sweep = ev;
-            g_phase = PHASE_MANIPULATION;
-            g_lastMsg = "Liquidity sweep detected (" + DirToString(g_sweep.setupDir) + ")";
-            DebugPrint(g_cfg, g_lastMsg);
-            ZeroMemory(g_mss);
-            ZeroMemory(g_pending);
-           }
-        }
-      else
-        {
-         // Opposite sweep replaces the working idea only if the first
-         // sweep never rejected. A later take of the other side after
-         // a rejection is distribution toward liquidity, not a new Judas.
-         SSweepEvent ev;
-         ZeroMemory(ev);
-         if(g_liq.DetectSweep(bar, g_range, ev) &&
-            ev.setupDir != g_sweep.setupDir &&
-            !g_sweep.returned)
-           {
-            g_sweep = ev;
-            g_phase = PHASE_MANIPULATION;
-            g_lastMsg = "Opposite sweep — working direction flipped to " + DirToString(g_sweep.setupDir);
-            ZeroMemory(g_mss);
-            ZeroMemory(g_pending);
-           }
-         else
-           {
-            if(g_sweep.setupDir == DIR_SELL && bar.high > g_sweep.extreme)
-               g_sweep.extreme = bar.high;
-            if(g_sweep.setupDir == DIR_BUY && bar.low < g_sweep.extreme)
-               g_sweep.extreme = bar.low;
-            g_liq.UpdateReturn(bar, g_range, g_sweep);
-           }
-        }
-
-      if(g_sweep.active && g_sweep.returned && !g_mss.confirmed && !g_pending.armed)
-        {
-         const double atr = LtfAtr();
-         if(g_structure.ConfirmShift(ltf, copied, g_sweep, g_range, atr, g_mss))
-            ArmSetup(ltf);
-         else
-            g_lastMsg = "Sweep returned — waiting for market-structure confirmation";
-        }
-     }
-
-   if(g_pending.armed)
-      TryEnter(ltf);
-
-   g_visuals.DrawRange(g_range);
-   g_visuals.DrawSweep(g_sweep, g_range);
-   g_visuals.DrawMss(g_mss);
-   if(g_lastDir != DIR_NONE)
-      g_visuals.DrawTradeLevels(g_lastDir, g_lastEntry, g_lastSl, g_lastTp, g_lastTradeTime);
-   g_visuals.DrawDashboard(session, g_phase, g_range, g_bias, g_sweep, g_lastMsg);
+   RefreshDashboard();
   }
 
 int OnInit()
   {
    FillConfig();
-   g_sessions.Init(g_cfg, _Symbol, InpLTF);
+
+   if(StringCompare(_Symbol, InpTradeSymbol, false) != 0)
+     {
+      Print("AMD EA trades ", InpTradeSymbol, " only. Chart symbol is ", _Symbol,
+            ". Open an ", InpTradeSymbol, " chart and attach the EA there.");
+      return(INIT_PARAMETERS_INCORRECT);
+     }
+
+   g_sessions.Init(g_cfg, _Symbol, PERIOD_M15);
    g_liq.Init(g_cfg, _Symbol);
    g_structure.Init(g_cfg, _Symbol);
    g_trader.Init(g_cfg, _Symbol);
    g_visuals.Init(g_cfg, _Symbol);
 
-   g_atrHandle = iATR(_Symbol, InpLTF, InpAtrPeriod);
-   if(g_atrHandle == INVALID_HANDLE)
+   g_tf[0].tf = PERIOD_H1;
+   g_tf[0].enabled = InpUseH1;
+   g_tf[1].tf = PERIOD_M30;
+   g_tf[1].enabled = InpUseM30;
+   g_tf[2].tf = PERIOD_M15;
+   g_tf[2].enabled = InpUseM15;
+
+   for(int i = 0; i < AMD_TF_COUNT; i++)
      {
-      Print("Failed to create ATR handle");
-      return(INIT_FAILED);
+      g_tf[i].lastBar   = 0;
+      g_tf[i].atrHandle = INVALID_HANDLE;
+      ResetTf(g_tf[i]);
+      if(!g_tf[i].enabled)
+         continue;
+      g_tf[i].atrHandle = iATR(_Symbol, g_tf[i].tf, InpAtrPeriod);
+      if(g_tf[i].atrHandle == INVALID_HANDLE)
+        {
+         Print("Failed to create ATR handle for ", TfToString(g_tf[i].tf));
+         return(INIT_FAILED);
+        }
      }
 
    ResetCycle(0, "Init");
+   g_lastMsg = "Ready on " + _Symbol + "  lots start " + DoubleToString(InpStartLots, 2);
    return(INIT_SUCCEEDED);
   }
 
 void OnDeinit(const int reason)
   {
-   if(g_atrHandle != INVALID_HANDLE)
-      IndicatorRelease(g_atrHandle);
+   for(int i = 0; i < AMD_TF_COUNT; i++)
+     {
+      if(g_tf[i].atrHandle != INVALID_HANDLE)
+         IndicatorRelease(g_tf[i].atrHandle);
+     }
    g_visuals.DeleteAll();
    Comment("");
   }
@@ -2357,28 +2602,5 @@ void OnDeinit(const int reason)
 void OnTick()
   {
    g_trader.ManageOpenTrades();
-
-   bool run = true;
-   if(g_cfg.tradeOnBarClose)
-      run = IsNewBar(_Symbol, g_cfg.ltf, g_lastLtfBar);
-
-   // Always refresh the dashboard / live range while accumulating
-   if(!run)
-     {
-      const datetime now = TimeCurrent();
-      if(g_sessions.CurrentSession(now) == SESSION_ASIA)
-        {
-         g_sessions.BuildRange(now, g_range);
-         g_phase = PHASE_ACCUMULATION;
-         g_visuals.DrawRange(g_range);
-         g_visuals.DrawDashboard(SESSION_ASIA, g_phase, g_range, g_bias, g_sweep, g_lastMsg);
-        }
-      return;
-     }
-
    ProcessLogic();
-  }
-
-void OnTimer()
-  {
   }
