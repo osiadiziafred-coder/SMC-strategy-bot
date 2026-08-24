@@ -16,16 +16,18 @@ Price is not treated as a random up/down stream. The EA first maps the overnight
 
 The EA does **not** assume that every session high or low will be swept, and it does **not** enter on a sweep without confirmation.
 
-## Install in MetaTrader 5
+## Install in MetaTrader 5 (one file)
+
+The full bot is the standalone file **`AMD_Session_EA.mq5`** at the repo root (same code as `MQL5/Experts/AMD_Session_EA.mq5`). You do **not** need the Include folder.
 
 1. Open MT5 → **File → Open Data Folder**.
-2. Copy `MQL5/Experts/AMD_Session_EA.mq5` into `MQL5/Experts/`.
-3. Copy the `MQL5/Include/AMD/` folder into `MQL5/Include/AMD/`.
-4. Restart MT5 (or right-click Navigator → Refresh).
-5. Compile `AMD_Session_EA.mq5` in MetaEditor.
-6. Attach it to the chart you want to trade (M5 or M15 recommended as the display chart). The EA reads **H1** for bias and **M5** for entries regardless of the chart period, and both timeframes are inputs.
+2. Copy `AMD_Session_EA.mq5` into that folder’s `MQL5/Experts/` directory.
+3. Restart MT5, or in Navigator right-click **Expert Advisors → Refresh**.
+4. Open `AMD_Session_EA.mq5` in MetaEditor and press **Compile** (F7).
+5. Enable **Algo Trading**, then drag the EA onto a chart (M5 or M15 is a good display chart).
+6. Allow live trading in the Common tab. Session hours are **broker server time** — if your server is GMT+2 in winter / GMT+3 in summer, the defaults (Asia `00:00–08:00`, London `08:00–12:00`, New York `12:00–17:00`) already match.
 
-Session hours are **broker server time**. If your broker is GMT+2 in winter / GMT+3 in summer, the defaults (Asia `00:00–08:00`, London `08:00–12:00`, New York `12:00–17:00`) match the common ICT map. Shift the inputs if your server is different.
+The EA reads **H1** for bias and **M5** for entries regardless of the chart period. Both timeframes are inputs.
 
 ## Default session map (server time)
 
@@ -131,8 +133,9 @@ This is a rules-based automation of a discretionary SMC/ICT concept. It is **not
 ## Repository layout
 
 ```
-MQL5/Experts/AMD_Session_EA.mq5   # attach this in MT5
-MQL5/Include/AMD/                 # enums, sessions, liquidity, structure, trading, visuals
+AMD_Session_EA.mq5                # FULL standalone bot — copy this one file into MT5
+MQL5/Experts/AMD_Session_EA.mq5   # same standalone bot
+MQL5/Include/AMD/                 # optional split modules (not required to compile)
 python/amd_engine.py              # testable decision core
 python/visualize_amd.py
 tests/test_amd_engine.py
