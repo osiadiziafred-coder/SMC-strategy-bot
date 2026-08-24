@@ -33,8 +33,7 @@ Only then is an entry armed. Entry style is market, BOS retest, or FVG tap.
 
 ## Multi-timeframe
 
-- **HTF** (default H1): last confirmed BOS sets directional bias. Optional filter: with-trend or counter-trend.
-- **LTF** (default M5): sweeps, MSS, FVG, stop placement.
+The bot trades **XAUUSDm only** and scans **M15, M30 and H1** in parallel. It takes **one** confirmed AMD setup from whichever of those timeframes is ready (default: first ready). Optional HTF bias still uses the higher timeframe input (default H4) if you turn the bias filter on.
 
 ## Stops and targets
 

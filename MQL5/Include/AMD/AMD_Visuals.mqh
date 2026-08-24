@@ -191,25 +191,39 @@ public:
       return(ColorLuma(bg) >= 400);
      }
 
-   void              DashLabel(const string id, const int x, const int y, const string text,
-                               const color clr, const int size)
+   // Each row is a read-only OBJ_EDIT so the text colour lives on the
+   // control itself. A filled OBJ_RECTANGLE_LABEL paints over OBJ_LABEL
+   // on many white-chart templates and leaves a blank box.
+   void              DashRow(const string id, const int x, const int y,
+                             const int width, const int height,
+                             const string text, const color bg, const color fg,
+                             const int size)
      {
       const string name = AMD_PREFIX + id;
-      if(ObjectFind(m_chart, name) < 0)
+      if(ObjectFind(m_chart, name) >= 0)
         {
-         ObjectCreate(m_chart, name, OBJ_LABEL, 0, 0, 0);
-         ObjectSetInteger(m_chart, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
-         ObjectSetInteger(m_chart, name, OBJPROP_ANCHOR, ANCHOR_LEFT_UPPER);
-         ObjectSetString(m_chart, name, OBJPROP_FONT, "Consolas");
-         ObjectSetInteger(m_chart, name, OBJPROP_SELECTABLE, false);
-         ObjectSetInteger(m_chart, name, OBJPROP_HIDDEN, true);
-         ObjectSetInteger(m_chart, name, OBJPROP_BACK, false);
+         if((ENUM_OBJECT)ObjectGetInteger(m_chart, name, OBJPROP_TYPE) != OBJ_EDIT)
+            ObjectDelete(m_chart, name);
         }
+      if(ObjectFind(m_chart, name) < 0)
+         ObjectCreate(m_chart, name, OBJ_EDIT, 0, 0, 0);
+      ObjectSetInteger(m_chart, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
       ObjectSetInteger(m_chart, name, OBJPROP_XDISTANCE, x);
       ObjectSetInteger(m_chart, name, OBJPROP_YDISTANCE, y);
-      ObjectSetInteger(m_chart, name, OBJPROP_COLOR, clr);
+      ObjectSetInteger(m_chart, name, OBJPROP_XSIZE, width);
+      ObjectSetInteger(m_chart, name, OBJPROP_YSIZE, height);
+      ObjectSetString(m_chart, name, OBJPROP_FONT, "Arial");
       ObjectSetInteger(m_chart, name, OBJPROP_FONTSIZE, size);
-      ObjectSetString(m_chart, name, OBJPROP_TEXT, text);
+      ObjectSetInteger(m_chart, name, OBJPROP_COLOR, fg);
+      ObjectSetInteger(m_chart, name, OBJPROP_BGCOLOR, bg);
+      ObjectSetInteger(m_chart, name, OBJPROP_BORDER_COLOR, bg);
+      ObjectSetInteger(m_chart, name, OBJPROP_READONLY, true);
+      ObjectSetInteger(m_chart, name, OBJPROP_ALIGN, ALIGN_LEFT);
+      ObjectSetInteger(m_chart, name, OBJPROP_BACK, false);
+      ObjectSetInteger(m_chart, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(m_chart, name, OBJPROP_HIDDEN, true);
+      ObjectSetInteger(m_chart, name, OBJPROP_ZORDER, 10);
+      ObjectSetString(m_chart, name, OBJPROP_TEXT, " " + text);
      }
 
    void              DrawDashboard(const ENUM_SESSION_KIND session,
@@ -221,45 +235,34 @@ public:
          return;
 
       Comment("");
+      ObjectDelete(m_chart, AMD_PREFIX + "DASH");
+      ObjectDelete(m_chart, AMD_PREFIX + "DASH_FRAME");
 
       const bool light = UseLightPanel();
-      const color panelBg  = (light ? C'255,255,255' : C'12,16,28');
-      const color border   = (light ? C'10,70,150' : clrDodgerBlue);
-      const color titleClr = (light ? C'10,50,120' : clrAqua);
-      const color textClr  = (light ? C'15,25,45' : C'235,240,248');
-      const color muteClr  = (light ? C'70,80,95' : C'170,180,200');
+      const color headerBg = (light ? C'10,55,120' : C'8,90,160');
+      const color headerFg = clrWhite;
+      const color rowBg    = (light ? C'230,238,248' : C'18,22,34');
+      const color rowFg    = (light ? clrBlack : clrWhite);
+      const color muteBg   = (light ? C'214,226,240' : C'24,30,44');
+      const color muteFg   = (light ? C'20,40,70' : C'210,220,235');
 
-      const string box = AMD_PREFIX + "DASH";
-      if(ObjectFind(m_chart, box) < 0)
-         ObjectCreate(m_chart, box, OBJ_RECTANGLE_LABEL, 0, 0, 0);
-      ObjectSetInteger(m_chart, box, OBJPROP_CORNER, CORNER_LEFT_UPPER);
-      ObjectSetInteger(m_chart, box, OBJPROP_XDISTANCE, 10);
-      ObjectSetInteger(m_chart, box, OBJPROP_YDISTANCE, 18);
-      ObjectSetInteger(m_chart, box, OBJPROP_XSIZE, 340);
-      ObjectSetInteger(m_chart, box, OBJPROP_YSIZE, 268);
-      ObjectSetInteger(m_chart, box, OBJPROP_BGCOLOR, panelBg);
-      ObjectSetInteger(m_chart, box, OBJPROP_BORDER_TYPE, BORDER_FLAT);
-      ObjectSetInteger(m_chart, box, OBJPROP_BORDER_COLOR, border);
-      ObjectSetInteger(m_chart, box, OBJPROP_COLOR, border);
-      ObjectSetInteger(m_chart, box, OBJPROP_WIDTH, 2);
-      ObjectSetInteger(m_chart, box, OBJPROP_BACK, false);
-      ObjectSetInteger(m_chart, box, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(m_chart, box, OBJPROP_HIDDEN, true);
+      const int x = 10;
+      const int w = 360;
+      const int h = 22;
+      int y = 18;
 
-      const int x = 22;
-      int y = 28;
-      const int step = 16;
-      DashLabel("D_TITLE", x, y, "AMD  XAUUSDm  SESSION BOT", titleClr, 11); y += step + 4;
-      DashLabel("D_SYM",   x, y, "Symbol  : " + m_symbol, textClr, 9); y += step;
-      DashLabel("D_SES",   x, y, "Session : " + SessionKindToString(session), textClr, 9); y += step;
-      DashLabel("D_H1",    x, y, "H1      : " + h1status, textClr, 9); y += step;
-      DashLabel("D_M30",   x, y, "M30     : " + m30status, textClr, 9); y += step;
-      DashLabel("D_M15",   x, y, "M15     : " + m15status, textClr, 9); y += step;
-      DashLabel("D_BIAS",  x, y, "Bias    : " + DirToString(bias.dir), textClr, 9); y += step;
-      DashLabel("D_RH",    x, y, "Range H : " + DoubleToString(range.high, SymbolDigits(m_symbol)), textClr, 9); y += step;
-      DashLabel("D_RL",    x, y, "Range L : " + DoubleToString(range.low,  SymbolDigits(m_symbol)), textClr, 9); y += step;
-      DashLabel("D_LOT",   x, y, "Next lot: " + DoubleToString(nextLot, 2), textClr, 9); y += step;
-      DashLabel("D_MSG",   x, y, lastMsg, muteClr, 8);
+      DashRow("D_TITLE", x, y, w, h, "AMD  XAUUSDm  SESSION BOT", headerBg, headerFg, 10); y += h;
+      DashRow("D_SYM",   x, y, w, h, "Symbol  : " + m_symbol, rowBg, rowFg, 9); y += h;
+      DashRow("D_SES",   x, y, w, h, "Session : " + SessionKindToString(session), rowBg, rowFg, 9); y += h;
+      DashRow("D_H1",    x, y, w, h, "H1      : " + h1status, rowBg, rowFg, 9); y += h;
+      DashRow("D_M30",   x, y, w, h, "M30     : " + m30status, rowBg, rowFg, 9); y += h;
+      DashRow("D_M15",   x, y, w, h, "M15     : " + m15status, rowBg, rowFg, 9); y += h;
+      DashRow("D_BIAS",  x, y, w, h, "Bias    : " + DirToString(bias.dir), rowBg, rowFg, 9); y += h;
+      DashRow("D_RH",    x, y, w, h, "Range H : " + DoubleToString(range.high, SymbolDigits(m_symbol)), rowBg, rowFg, 9); y += h;
+      DashRow("D_RL",    x, y, w, h, "Range L : " + DoubleToString(range.low,  SymbolDigits(m_symbol)), rowBg, rowFg, 9); y += h;
+      DashRow("D_LOT",   x, y, w, h, "Next lot: " + DoubleToString(nextLot, 2), rowBg, rowFg, 9); y += h;
+      DashRow("D_POS",   x, y, w, h, "Max open: 1 position", rowBg, rowFg, 9); y += h;
+      DashRow("D_MSG",   x, y, w, h, (lastMsg == "" ? "Waiting for AMD setup" : lastMsg), muteBg, muteFg, 8);
       ChartRedraw(m_chart);
      }
   };

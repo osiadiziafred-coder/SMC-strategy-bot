@@ -23,9 +23,9 @@ The full bot is **`AMD_Session_EA.mq5`**. Copy that one file into `MQL5/Experts/
 1. Open an **XAUUSDm** chart. The EA will refuse any other symbol.
 2. MT5 → **File → Open Data Folder** → `MQL5/Experts/` → paste `AMD_Session_EA.mq5`.
 3. Compile (F7). Enable **Algo Trading**. Attach the EA.
-4. Dashboard theme default is **Light** (dark text on a white panel) so it stays readable on a white chart. Set it to Auto or Dark if you use a black background.
+4. The dashboard is a navy header plus light-blue rows with **black text**. It is built from read-only chart fields so a white chart background cannot hide it. Set theme to Dark only if you use a black chart.
 
-The bot scans **H1, M30 and M15** for one AMD setup (H1 preferred if more than one is ready). It opens **one position**. Lots start at **0.01** and add **0.01 per $100** of account balance (input `Balance per extra 0.01 lot`).
+The bot scans **H1, M30 and M15** and takes **one** confirmed setup from whichever of those timeframes is ready first. It opens **one position**. Lots start at **0.01** and add **0.01 per $100** of account balance (input `InpBalancePerLot`).
 
 The EA reads those timeframes from the symbol history. You can attach it to any of M15 / M30 / H1.
 
@@ -88,8 +88,9 @@ Every behaviour below is an EA input. You do not need to edit source to change i
 - Max bars after MSS, max retest wait, minimum FVG size
 
 ### Risk
-- Fixed lots or % of balance
+- Balance-scale lots (default): start at 0.01, add 0.01 per $100 balance, or fixed lots / % of balance
 - Max lot cap
+- One open position at a time
 - SL buffer beyond the sweep extreme
 - Min / max SL distance (skip the trade if the stop is unreasonable)
 - TP mode: risk/reward, next liquidity, or hybrid
@@ -105,7 +106,7 @@ Every behaviour below is an EA input. You do not need to edit source to change i
 ### Visuals
 - Accumulation box, session high/low, BSL/SSL labels
 - Manipulation zone, MSS arrow, FVG, entry / SL / TP
-- On-chart dashboard (session, phase, bias, range, last message)
+- On-chart dashboard (high-contrast rows: session, H1/M30/M15 phase, bias, range, next lot, last message)
 
 ## Chart objects
 

@@ -4,8 +4,8 @@
 //+------------------------------------------------------------------+
 #property copyright "SMC Strategy Bot"
 #property link      "https://github.com/osiadiziafred-coder/SMC-strategy-bot"
-#property version   "1.10"
-#property description "XAUUSDm session AMD EA. Scans M15, M30 and H1, takes one confirmed setup, starts at 0.01 lots and scales with balance. Dashboard is readable on white charts."
+#property version   "1.11"
+#property description "XAUUSDm session AMD EA. Scans M15, M30 and H1, takes one confirmed setup, starts at 0.01 lots and scales with balance. Dashboard uses high-contrast rows on white charts."
 
 #include <AMD/AMD_Enums.mqh>
 #include <AMD/AMD_Config.mqh>
@@ -31,7 +31,7 @@ input group "=== Setup timeframes ==="
 input bool               InpUseH1              = true;             // Scan H1
 input bool               InpUseM30             = true;             // Scan M30
 input bool               InpUseM15             = true;             // Scan M15
-input ENUM_TF_PRIORITY   InpTfPriority         = TF_PRIORITY_H1;   // Which TF wins if several are ready
+input ENUM_TF_PRIORITY   InpTfPriority         = TF_PRIORITY_FIRST_READY; // Take the first ready TF setup
 
 input group "=== Sessions (server time) ==="
 input int                InpAsiaStartHour      = 0;
@@ -649,11 +649,14 @@ int OnInit()
 
    ResetCycle(0, "Init");
    g_lastMsg = "Ready on " + _Symbol + "  lots start " + DoubleToString(InpStartLots, 2);
+   EventSetTimer(1);
+   RefreshDashboard();
    return(INIT_SUCCEEDED);
   }
 
 void OnDeinit(const int reason)
   {
+   EventKillTimer();
    for(int i = 0; i < AMD_TF_COUNT; i++)
      {
       if(g_tf[i].atrHandle != INVALID_HANDLE)
@@ -661,6 +664,11 @@ void OnDeinit(const int reason)
      }
    g_visuals.DeleteAll();
    Comment("");
+  }
+
+void OnTimer()
+  {
+   RefreshDashboard();
   }
 
 void OnTick()
