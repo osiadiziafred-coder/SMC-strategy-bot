@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Single-file Python AI SMC robot for XAUUSDm on MetaTrader 5.
 
+THIS IS PYTHON. Do not paste this file into MetaEditor / a .mq5 Expert Advisor.
+MetaEditor only compiles MQL5. Use pyhonAI_SMC.mq5 for MetaEditor.
+
 Save as smc_robot.py then:
 
     pip install numpy

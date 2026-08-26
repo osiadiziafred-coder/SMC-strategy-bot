@@ -2,6 +2,20 @@
 
 Python Smart Money Concepts robot for **XAUUSDm**. Python analyzes H1 / M30 / M15, scores the setup, and MetaTrader 5 executes. The robot trades through news and relies on spread, slippage, and quote-age protection instead of a news calendar.
 
+## Compile in MetaEditor (MQL5)
+
+Do **not** paste Python into a `.mq5` file. MetaEditor only compiles MQL5. Those 31 errors (`def`, `from __future__`, `invalid preprocessor command`, `closing quote expected`) mean the Python robot was saved as `.mq5`.
+
+Use the native Expert Advisor instead:
+
+1. Copy **`pyhonAI_SMC.mq5`** (or `PythonAI_SMC.mq5`) into `File → Open Data Folder → MQL5\Experts\`
+2. Open it in MetaEditor and press **F7**
+3. Attach the compiled EA to an **XAUUSDm** chart (Algo Trading must be enabled)
+
+The MQL5 EA uses the same rules: H1 bias, M30 confirm, M15 entry, score ≥ 70, 1:2 RR, `$100 = 0.01` lots, one position, breakeven at +1R, spread protection, no news filter.
+
+Python (`smc_robot.py`) is a separate runner for Windows + the `MetaTrader5` package. It cannot be compiled in MetaEditor.
+
 ## Programmable SMC rules
 
 Breaks use **candle close only**, never a wick. Swings are confirmed only after `n` bars exist on both sides (no repaint).
