@@ -108,3 +108,51 @@ def m15_buy_setup() -> list[Candle]:
     candles[108] = _set_bar(candles[108], 2041.5, 2042.4, 2040.4, 2041.0)
     candles[tap] = _set_bar(candles[tap], 2041.2, 2042.6, 2037.2, 2039.8)
     return candles
+
+
+def bearish_structure_candles(n: int = 96, minutes: int = 60) -> list[Candle]:
+    return structure_from_swings(
+        [
+            (8, "H", 2100.0),
+            (22, "L", 2076.0),
+            (36, "H", 2092.0),
+            (50, "L", 2064.0),
+            (64, "H", 2084.0),
+            (78, "L", 2052.0),
+        ],
+        n_bars=n,
+        minutes=minutes,
+        extra_n=5,
+    )
+
+
+def m15_sell_setup() -> list[Candle]:
+    candles = [c.model_copy() for c in bearish_structure_candles(n=110, minutes=15)]
+    for j in range(79, 110):
+        candles[j] = _set_bar(candles[j], 2058.0, 2059.2, 2056.8, 2057.8)
+
+    high_i = 93
+    s = 100
+    sweep = 103
+    ob = 104
+    impulse_mid = 105
+    impulse_right = 106
+    pull = 107
+    tap = 109
+    internal_low = 2057.0
+    swing_high = 2063.8
+
+    candles[high_i] = _set_bar(candles[high_i], 2058.8, 2059.2, internal_low, 2057.6)
+    for j in (high_i - 2, high_i - 1, high_i + 1, high_i + 2):
+        candles[j] = _set_bar(candles[j], 2058.6, 2059.8, 2057.6, 2058.6)
+    candles[s] = _set_bar(candles[s], 2062.4, swing_high, 2061.6, 2063.1)
+    for j in (s - 2, s - 1, s + 1, s + 2):
+        candles[j] = _set_bar(candles[j], 2061.7, 2062.5, 2060.8, 2061.7)
+    candles[sweep] = _set_bar(candles[sweep], 2062.2, swing_high + 0.9, 2061.2, 2062.2)
+    candles[ob] = _set_bar(candles[ob], 2061.5, 2063.6, 2061.3, 2063.3)
+    candles[impulse_mid] = _set_bar(candles[impulse_mid], 2063.2, 2063.4, 2058.2, 2058.6)
+    candles[impulse_right] = _set_bar(candles[impulse_right], 2058.5, 2058.8, 2054.8, 2055.2)
+    candles[pull] = _set_bar(candles[pull], 2055.4, 2059.0, 2055.0, 2058.4)
+    candles[108] = _set_bar(candles[108], 2058.5, 2059.6, 2057.6, 2059.0)
+    candles[tap] = _set_bar(candles[tap], 2058.8, 2062.8, 2057.4, 2060.2)
+    return candles

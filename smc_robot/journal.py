@@ -34,7 +34,7 @@ class DecisionJournal:
             fvg=bool(score and score.features.get("fvg_interact")),
             atr=float(score.features.get("atr_ratio", 0.0)) if score else 0.0,
             spread=quote_spread,
-            session=None,
+            session=("LONDON_NY" if score and score.features.get("session_london_ny") else "OTHER"),
             ml_probability=score.ml_probability if score else None,
             rule_score=score.rule_score if score else None,
             final_score=score.total if score else None,

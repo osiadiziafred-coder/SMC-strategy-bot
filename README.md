@@ -51,9 +51,12 @@ H1 bias + M30 confirm + liquidity sweep + OB or FVG + M15 BOS/CHoCH/MSS + ML pro
 
 ## Run
 
+Full install steps: [docs/SETUP.md](docs/SETUP.md).
+
 ```bash
 pip install -r requirements.txt
 python -m smc_robot explain
+python -m smc_robot verify
 python -m smc_robot --mode paper
 python -m smc_robot train --out models/smc_scorer.joblib
 python -m smc_robot backtest
@@ -69,6 +72,8 @@ python -m smc_robot --mode dry      # data only
 python -m smc_robot --mode live     # Python API orders
 python -m smc_robot --mode bridge   # Python writes files, MQL5 EA executes
 ```
+
+Install and connect the two parts using [docs/SETUP.md](docs/SETUP.md).
 
 ## MQL5 bridge
 

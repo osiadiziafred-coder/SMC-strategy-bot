@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from smc_robot.config import Settings
-from smc_robot.models import Direction, Signal
+from smc_robot.models import Signal
 
 
 class FileBridge:
@@ -40,6 +40,7 @@ class FileBridge:
             "action": signal.direction.value,
             "id": signal.signal_id,
             "symbol": self.settings.symbol,
+            "entry": signal.plan.entry,
             "lots": signal.plan.lots,
             "sl": signal.plan.sl,
             "tp": signal.plan.tp,
@@ -48,11 +49,9 @@ class FileBridge:
             "ml_probability": signal.score.ml_probability,
             "grade": signal.grade.value,
             "comment": (self.settings.risk.comment + "-" + signal.signal_id)[:31],
-            "manage": {
-                "breakeven_r": self.settings.risk.breakeven_r,
-                "trail_start_r": self.settings.risk.trail_start_r,
-                "trail_enabled": self.settings.risk.trail_enabled,
-            },
+            "breakeven_r": self.settings.risk.breakeven_r,
+            "trail_start_r": self.settings.risk.trail_start_r,
+            "trail_enabled": 1 if self.settings.risk.trail_enabled else 0,
             "time": datetime.now(timezone.utc).isoformat(),
         }
         self._write_command(command)
@@ -111,7 +110,6 @@ class FileBridge:
 
 
 def command_from_signal(signal: Signal, settings: Settings) -> dict[str, Any]:
-    bridge = FileBridge(settings)
     return {
         "action": signal.direction.value,
         "id": signal.signal_id,
@@ -119,5 +117,104 @@ def command_from_signal(signal: Signal, settings: Settings) -> dict[str, Any]:
         "lots": signal.plan.lots,
         "sl": signal.plan.sl,
         "tp": signal.plan.tp,
+        "entry": signal.plan.entry,
         "direction": signal.direction.value,
     }
+
+
+class Mql5PaperExecutor:
+    """Mirrors the EA protocol without MetaEditor: read command.json, write status.json."""
+
+    def __init__(self, settings: Settings, bid: float = 2000.0, ask: float = 2000.25):
+        self.bridge = FileBridge(settings)
+        self.settings = settings
+        self.bid = bid
+        self.ask = ask
+        self.last_id = ""
+        self.positions: list[dict[str, Any]] = []
+        self._ticket = 1000
+
+    def process_once(self) -> dict[str, Any]:
+        if not self.bridge.command_path.exists():
+            return self._status("idle", "no_command")
+        try:
+            cmd = json.loads(self.bridge.command_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return self._write_status(False, 0, 0.0, 0.0, 0.0, "bad_json", "")
+        action = str(cmd.get("action") or "")
+        cmd_id = str(cmd.get("id") or "")
+        if not cmd_id or cmd_id == self.last_id:
+            return self._status("duplicate", "duplicate_or_empty")
+        if action in ("HEARTBEAT", "NONE"):
+            self.last_id = cmd_id
+            return self._write_status(True, 0, 0.0, 0.0, 0.0, "heartbeat", cmd_id)
+        if action in ("BUY", "SELL"):
+            if self.positions:
+                self.last_id = cmd_id
+                return self._write_status(False, 0, 0.0, 0.0, 0.0, "max_positions", cmd_id)
+            lots = float(cmd.get("lots") or 0)
+            sl = float(cmd.get("sl") or 0)
+            tp = float(cmd.get("tp") or 0)
+            if lots <= 0 or sl <= 0 or tp <= 0:
+                self.last_id = cmd_id
+                return self._write_status(False, 0, 0.0, sl, tp, "invalid_trade_plan", cmd_id)
+            price = self.ask if action == "BUY" else self.bid
+            self._ticket += 1
+            self.positions.append(
+                {
+                    "ticket": self._ticket,
+                    "direction": action,
+                    "lots": lots,
+                    "entry": price,
+                    "sl": sl,
+                    "tp": tp,
+                    "signal_id": cmd_id,
+                }
+            )
+            self.last_id = cmd_id
+            return self._write_status(True, self._ticket, price, sl, tp, "filled", cmd_id)
+        if action == "MODIFY":
+            ticket = int(cmd.get("ticket") or 0)
+            sl = float(cmd.get("sl") or 0)
+            tp = float(cmd.get("tp") or 0)
+            for pos in self.positions:
+                if pos["ticket"] == ticket:
+                    pos["sl"] = sl
+                    pos["tp"] = tp
+                    self.last_id = cmd_id
+                    return self._write_status(True, ticket, pos["entry"], sl, tp, "modified", cmd_id)
+            self.last_id = cmd_id
+            return self._write_status(False, ticket, 0.0, sl, tp, "modify_failed", cmd_id)
+        self.last_id = cmd_id
+        return self._write_status(False, 0, 0.0, 0.0, 0.0, "unknown_action", cmd_id)
+
+    def _write_status(
+        self, ok: bool, ticket: int, price: float, sl: float, tp: float, error: str, cmd_id: str
+    ) -> dict[str, Any]:
+        payload = {
+            "connected": True,
+            "python_fresh": True,
+            "symbol": self.settings.symbol,
+            "bid": self.bid,
+            "ask": self.ask,
+            "spread": 25,
+            "positions": len(self.positions),
+            "last_command_id": cmd_id or self.last_id,
+            "time": datetime.now(timezone.utc).isoformat(),
+            "last_result": {
+                "id": cmd_id,
+                "ok": ok,
+                "ticket": ticket,
+                "price": price,
+                "sl": sl,
+                "tp": tp,
+                "error": error,
+            },
+        }
+        tmp = self.bridge.status_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        tmp.replace(self.bridge.status_path)
+        return payload
+
+    def _status(self, error: str, _msg: str) -> dict[str, Any]:
+        return self._write_status(False, 0, 0.0, 0.0, 0.0, error, self.last_id)

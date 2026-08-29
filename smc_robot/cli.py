@@ -24,11 +24,17 @@ def _mt5_broker() -> MT5Broker:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    if argv and argv[0] in {"explain", "train", "backtest", "walk-forward"}:
+    if argv and argv[0] in {"explain", "train", "backtest", "walk-forward", "verify"}:
         command = argv.pop(0)
         if command == "explain":
             print(render_concepts())
             return 0
+        if command == "verify":
+            from smc_robot.verify import run_verification
+
+            report = run_verification()
+            print(json.dumps(report, indent=2, default=str))
+            return 0 if report["passed"] else 1
         if command == "train":
             return _cmd_train(argv)
         if command == "backtest":
@@ -108,16 +114,13 @@ def _cmd_train(argv: list[str]) -> int:
 
 
 def _cmd_backtest(argv: list[str], walk: bool) -> int:
-    from smc_robot.backtest import run_backtest, walk_forward
-    from smc_robot.data.setups import bullish_structure_candles, m15_buy_setup
+    from smc_robot.backtest import demo_series, run_backtest, walk_forward
 
     parser = argparse.ArgumentParser(description="Replay SMC setups (synthetic if no data)")
     parser.add_argument("--config", default=None)
     args = parser.parse_args(argv)
     settings = load_config(args.config)
-    h1 = bullish_structure_candles(n=160, minutes=60)
-    m30 = bullish_structure_candles(n=180, minutes=30)
-    m15 = m15_buy_setup() + bullish_structure_candles(n=80, minutes=15)
+    h1, m30, m15 = demo_series()
     if walk:
         print(json.dumps(walk_forward(h1, m30, m15, settings), indent=2, default=str))
         return 0

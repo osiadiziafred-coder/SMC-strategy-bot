@@ -9,19 +9,65 @@ import numpy as np
 from smc_robot.scoring import FEATURE_NAMES
 
 
+def _candidates():
+    from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+    from sklearn.linear_model import LogisticRegression
+
+    return {
+        "gradient_boosting": GradientBoostingClassifier(
+            n_estimators=120, max_depth=3, learning_rate=0.06, random_state=42
+        ),
+        "random_forest": RandomForestClassifier(
+            n_estimators=160, max_depth=5, min_samples_leaf=4, random_state=42
+        ),
+        "logistic": LogisticRegression(max_iter=400, random_state=42),
+    }
+
+
+def _valid_score(model, features: np.ndarray, labels: np.ndarray) -> float:
+    if len(features) == 0 or len(np.unique(labels)) < 2:
+        return float((model.predict(features) == labels).mean()) if len(labels) else 0.0
+    proba = model.predict_proba(features)[:, 1]
+    order = np.argsort(proba)
+    # Mann–Whitney style rank AUC without extra sklearn metrics dependency edge cases
+    ranks = np.empty(len(order), dtype=float)
+    ranks[order] = np.arange(len(order))
+    pos = labels == 1
+    n_pos = pos.sum()
+    n_neg = (~pos).sum()
+    if n_pos == 0 or n_neg == 0:
+        return float((model.predict(features) == labels).mean())
+    return float((ranks[pos].sum() - n_pos * (n_pos - 1) / 2.0) / (n_pos * n_neg))
+
+
+def select_model(x_train, y_train, x_valid, y_valid):
+    best_name = "gradient_boosting"
+    best_model = None
+    best_score = -1.0
+    scores = {}
+    for name, model in _candidates().items():
+        model.fit(x_train, y_train)
+        score = _valid_score(model, x_valid, y_valid) if len(y_valid) else 0.0
+        scores[name] = score
+        if score > best_score:
+            best_score = score
+            best_name = name
+            best_model = model
+    if best_model is None:
+        best_model = _candidates()["gradient_boosting"]
+        best_model.fit(x_train, y_train)
+    return best_name, best_model, scores
+
+
 def train_model(features: np.ndarray, labels: np.ndarray, path: str | Path):
-    from sklearn.ensemble import GradientBoostingClassifier
     import joblib
 
     if features.size == 0 or len(np.unique(labels)) < 2:
         raise ValueError("Need both winning and losing labelled setups to train")
-    model = GradientBoostingClassifier(
-        n_estimators=120,
-        max_depth=3,
-        learning_rate=0.06,
-        random_state=42,
-    )
-    model.fit(features, labels)
+    x_tr, y_tr, x_va, y_va, _, _ = chronological_split(features, labels)
+    if len(y_va) < 4:
+        x_tr, y_tr, x_va, y_va = features, labels, features, labels
+    name, model, scores = select_model(x_tr, y_tr, x_va, y_va)
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(
@@ -29,6 +75,8 @@ def train_model(features: np.ndarray, labels: np.ndarray, path: str | Path):
             "model": model,
             "features": FEATURE_NAMES,
             "trained_offline": True,
+            "selected_model": name,
+            "validation_scores": scores,
         },
         target,
     )

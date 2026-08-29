@@ -22,6 +22,7 @@ from smc_robot.smc.analyze import TimeframeAnalysis
 from smc_robot.smc.fvg import interacting_fvgs
 from smc_robot.smc.liquidity import recent_sweeps
 from smc_robot.smc.order_blocks import interacting_blocks
+from smc_robot.smc.indicators import atr
 from smc_robot.smc.premium_discount import structure_premium_discount
 from smc_robot.smc.structure import recent_events
 
@@ -51,6 +52,11 @@ FEATURE_NAMES = [
     "premium_discount",
     "displacement",
     "session_london_ny",
+    "dist_liquidity",
+    "dist_ob",
+    "dist_fvg",
+    "candle_body_atr",
+    "momentum",
 ]
 
 
@@ -95,6 +101,15 @@ def extract_features(
     )
     conditions.premium_discount = pd
     session = conditions.session.value
+    last_c = m15.candles[-1]
+    atr_v = conditions.atr or atr(m15.candles, settings.smc.atr_period)
+    price = last_c.close
+    liq_price = sweep.swept_price if sweep is not None else None
+    ob_mid = order_block.mid if order_block is not None else None
+    fvg_mid = fvg.mid if fvg is not None else None
+    body_atr = (last_c.body / atr_v) if atr_v > 0 else 0.0
+    look = m15.candles[-6] if len(m15.candles) >= 6 else m15.candles[0]
+    momentum = ((price - look.close) / atr_v) if atr_v > 0 else 0.0
     return {
         "h1_trend": h1_value,
         "m30_trend": _trend_value(m30.trend, direction),
@@ -121,7 +136,18 @@ def extract_features(
         "premium_discount": 1.0 if (pd.in_discount or pd.in_premium) else 0.0,
         "displacement": 1.0 if conditions.displacement.strong else 0.0,
         "session_london_ny": 1.0 if session in ("LONDON", "NEW_YORK", "LONDON_NY_OVERLAP") else 0.0,
+        "dist_liquidity": _atr_dist(price, liq_price, atr_v),
+        "dist_ob": _atr_dist(price, ob_mid, atr_v),
+        "dist_fvg": _atr_dist(price, fvg_mid, atr_v),
+        "candle_body_atr": body_atr,
+        "momentum": momentum,
     }
+
+
+def _atr_dist(price: float, ref: float | None, atr_v: float) -> float:
+    if ref is None or atr_v <= 0:
+        return 9.0
+    return abs(price - ref) / atr_v
 
 
 def feature_vector(features: dict[str, float]) -> np.ndarray:

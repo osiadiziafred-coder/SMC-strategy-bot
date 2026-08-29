@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from smc_robot.config import Settings
 from smc_robot.engine import SmcEngine
 from smc_robot.models import Candle, Direction
 from smc_robot.risk.protection import Quote
 from smc_robot.risk.sizing import SymbolSpec
+from smc_robot.smc.sessions import classify_session
 
 
 @dataclass
@@ -89,25 +90,56 @@ class BacktestReport:
     def as_dict(self) -> dict:
         longs = [t for t in self.trades if t.direction == Direction.BUY]
         shorts = [t for t in self.trades if t.direction == Direction.SELL]
+        wins = [t.r_multiple for t in self.trades if t.r_multiple > 0]
+        losses = [t.r_multiple for t in self.trades if t.r_multiple < 0]
+        sessions: dict[str, list[TradeResult]] = {}
+        for trade in self.trades:
+            key = trade.session or "UNKNOWN"
+            sessions.setdefault(key, []).append(trade)
         return {
             "total_trades": self.total,
             "wins": self.wins,
             "losses": self.losses,
             "win_rate": self.win_rate,
             "profit_factor": self.profit_factor,
+            "net_profit_r": sum(t.r_multiple for t in self.trades),
             "average_r": self.average_r,
             "expectancy": self.expectancy,
+            "average_win": (sum(wins) / len(wins)) if wins else 0.0,
+            "average_loss": (sum(losses) / len(losses)) if losses else 0.0,
             "max_drawdown_r": self.max_drawdown_r(),
             "max_consecutive_losses": self.max_consecutive_losses,
             "long_trades": len(longs),
             "short_trades": len(shorts),
             "long_win_rate": (sum(1 for t in longs if t.win) / len(longs)) if longs else 0.0,
             "short_win_rate": (sum(1 for t in shorts if t.win) / len(shorts)) if shorts else 0.0,
+            "session_performance": {
+                name: {
+                    "trades": len(rows),
+                    "win_rate": (sum(1 for t in rows if t.win) / len(rows)) if rows else 0.0,
+                    "average_r": (sum(t.r_multiple for t in rows) / len(rows)) if rows else 0.0,
+                }
+                for name, rows in sessions.items()
+            },
+            "disclaimer": "Historical metrics do not guarantee future results.",
         }
 
 
 def _slice_upto(candles: list[Candle], stamp: datetime) -> list[Candle]:
     return [c for c in candles if c.time <= stamp]
+
+
+def shift_times(candles: list[Candle], delta: timedelta) -> list[Candle]:
+    return [c.model_copy(update={"time": c.time + delta}) for c in candles]
+
+
+def demo_series() -> tuple[list[Candle], list[Candle], list[Candle]]:
+    from smc_robot.data.setups import bullish_structure_candles, m15_buy_setup
+
+    h1 = bullish_structure_candles(n=240, minutes=60)
+    m30 = shift_times(bullish_structure_candles(n=240, minutes=30), timedelta(days=6))
+    m15 = shift_times(m15_buy_setup() + bullish_structure_candles(n=80, minutes=15), timedelta(days=6))
+    return h1, m30, m15
 
 
 def simulate_outcome(
@@ -194,6 +226,7 @@ def run_backtest(
                 r_multiple=r_mult,
                 mfe_r=mfe,
                 mae_r=mae,
+                session=classify_session(closed[-1].time, settings.sessions).value,
                 grade=decision.signal.grade.value,
             )
         )
