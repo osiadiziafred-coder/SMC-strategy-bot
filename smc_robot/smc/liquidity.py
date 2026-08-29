@@ -97,9 +97,22 @@ def liquidity_zones(pools: list[LiquidityPool], candles: list[Candle], atr_perio
     return zones
 
 
+def _rejection_ratio(candle, pool_price: float, is_buy: bool) -> float:
+    if is_buy:
+        extension = pool_price - candle.low
+        reclaim = candle.close - pool_price
+    else:
+        extension = candle.high - pool_price
+        reclaim = pool_price - candle.close
+    if extension <= 0:
+        return 0.0
+    return reclaim / extension
+
+
 def detect_sweeps(
     candles: list[Candle],
     pools: list[LiquidityPool],
+    pool_scope: str = "internal",
 ) -> list[LiquiditySweep]:
     sweeps: list[LiquiditySweep] = []
     for i, candle in enumerate(candles):
@@ -116,6 +129,10 @@ def detect_sweeps(
                         wick=candle.low,
                         close=candle.close,
                         equal_liquidity=pool.equal,
+                        members=pool.members,
+                        rejection_ratio=_rejection_ratio(candle, pool.price, True),
+                        pool_scope=pool_scope,
+                        extra={"equal_extra": pool.equal and pool.members >= 2},
                     )
                 )
             elif pool.kind == SwingKind.HIGH and candle.high > pool.price and candle.close < pool.price:
@@ -128,6 +145,10 @@ def detect_sweeps(
                         wick=candle.high,
                         close=candle.close,
                         equal_liquidity=pool.equal,
+                        members=pool.members,
+                        rejection_ratio=_rejection_ratio(candle, pool.price, False),
+                        pool_scope=pool_scope,
+                        extra={"equal_extra": pool.equal and pool.members >= 2},
                     )
                 )
     return _dedupe_sweeps(sweeps)

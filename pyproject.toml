@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "smc-robot"
-version = "1.0.0"
-description = "Python AI Smart Money Concepts trading robot for XAUUSDm on MetaTrader 5"
+version = "2.0.0"
+description = "Python ML Smart Money Concepts robot for XAUUSDm with an MQL5 execution bridge"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

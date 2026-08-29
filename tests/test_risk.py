@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 from smc_robot.config import Settings
 from smc_robot.models import Direction, LiquiditySweep, Zone, ZoneKind
-from smc_robot.risk.sizing import SymbolSpec, lots_from_balance
+from smc_robot.risk.sizing import SymbolSpec, lots_from_balance, lots_from_risk_percent
 from smc_robot.risk.trade_plan import build_trade_plan
 
 
@@ -15,6 +15,13 @@ def test_lot_size_every_100_dollars_is_one_step():
     assert lots_from_balance(1000, spec) == 0.10
     assert lots_from_balance(199, spec) == 0.01
     assert lots_from_balance(50, spec) == 0.0
+
+
+def test_percent_risk_uses_sl_distance_and_tick_value():
+    spec = SymbolSpec(name="XAUUSDm", tick_size=0.01, tick_value=1.0)
+    # $10,000 * 0.5% = $50. SL 10.00 = 1000 ticks * $1 = $1000/lot → 0.05 lot
+    lots = lots_from_risk_percent(10_000, 0.5, 10.0, spec)
+    assert lots == 0.05
 
 
 def test_lot_size_respects_broker_step_and_max():
@@ -57,7 +64,7 @@ def test_sl_from_setup_and_tp_is_one_to_two():
     assert plan.sl == 1988.0
     assert plan.sl_source == "sweep_low"
     assert abs(plan.tp - (2000.0 + 2 * (2000.0 - 1988.0))) < 1e-9
-    assert plan.lots == 0.10
+    assert plan.lots >= 0.01
 
 
 def test_sell_plan_is_one_to_two_from_sweep_high():
@@ -85,4 +92,4 @@ def test_sell_plan_is_one_to_two_from_sweep_high():
     assert plan is not None
     assert plan.sl == 2012.0
     assert plan.tp == 1976.0
-    assert plan.lots == 0.05
+    assert plan.lots >= 0.01

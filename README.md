@@ -1,57 +1,88 @@
-# Python AI SMC Robot (XAUUSDm / MT5)
+# Python ML SMC Robot (XAUUSDm / MT5)
 
-Python Smart Money Concepts robot for **XAUUSDm**. Python analyzes H1 / M30 / M15, scores the setup, and MetaTrader 5 executes. The robot trades through news and relies on spread, slippage, and quote-age protection instead of a news calendar.
+Python is the decision engine. MQL5 is only the execution bridge. The system does **not** claim a 90% win rate. It optimizes for expectancy, controlled risk, and out-of-sample robustness.
 
-## Compile in MetaEditor (MQL5)
+Default symbol: **XAUUSDm** (configurable: XAUUSD, GOLD, XAUUSD.a, …).
 
-Do **not** paste Python into a `.mq5` file. MetaEditor only compiles MQL5. Those 31 errors (`def`, `from __future__`, `invalid preprocessor command`, `closing quote expected`) mean the Python robot was saved as `.mq5`.
+## Architecture
 
-Use the native Expert Advisor instead:
+```
+Market data → H1 bias → M30 confirm → M15 sweep/OB/FVG/structure
+→ premium/discount + displacement + session/news
+→ feature vector → Gradient Boosting probability
+→ SMC + ML + risk + spread checks
+→ one position → MQL5 execute → BE / structure trail → journal
+```
 
-1. Copy **`pyhonAI_SMC.mq5`** (or `PythonAI_SMC.mq5`) into `File → Open Data Folder → MQL5\Experts\`
-2. Open it in MetaEditor and press **F7**
-3. Attach the compiled EA to an **XAUUSDm** chart (Algo Trading must be enabled)
+- Python lives in `.py` files only.
+- MQL5 lives in `.mq5` files only.
+- Do **not** paste Python into MetaEditor.
 
-The MQL5 EA uses the same rules: H1 bias, M30 confirm, M15 entry, score ≥ 70, 1:2 RR, `$100 = 0.01` lots, one position, breakeven at +1R, spread protection, no news filter.
+## SMC rules (programmed)
 
-Python (`smc_robot.py`) is a separate runner for Windows + the `MetaTrader5` package. It cannot be compiled in MetaEditor.
-
-## Programmable SMC rules
-
-Breaks use **candle close only**, never a wick. Swings are confirmed only after `n` bars exist on both sides (no repaint).
+Breaks use **close only**. Swings need `n` bars on both sides (`n=2` internal, `n=5` external).
 
 | Concept | Rule |
 |---|---|
-| **Swing high / low** | Bar `i` is a swing high if its high is strictly greater than the `n` bars on each side (`n=2` internal, `n=5` external). Inverse for swing lows. |
-| **Trend** | Last two *external* swing highs and lows: HH+HL = bullish, LH+LL = bearish, otherwise ranging. |
-| **BOS** | Continuation: bullish trend and close above last confirmed *internal* swing high (inverse for sell). |
-| **CHoCH** | First reversal warning: bearish trend and close above last confirmed *internal* swing high (inverse for sell). |
-| **MSS** | External reversal: bearish trend and close above last confirmed *external* swing high (inverse for sell). On one bar, MSS > CHoCH > BOS. |
-| **Order block** | Last opposite-body candle before a BOS/MSS, only if the displacement is ≥ `1.2 × ATR(14)`. Bullish OB is invalidated by a close below its low. |
-| **FVG** | Three-candle gap: bullish if `low[i] > high[i-2]`. Valid while not fully traded through. Minimum size `0.10 × ATR`. |
-| **Liquidity sweep** | Sell-side sweep (buy catalyst): low trades below a confirmed swing low and the bar closes back above it. Inverse for buy-side. Equal highs/lows within `0.15 × ATR` are stronger pools. |
+| **Liquidity sweep** | Wick through a confirmed pool, close back inside. |
+| **Equal-liquidity sweep extra** | Clustered highs/lows within `0.15×ATR` get extra score when swept. |
+| **Order block** | Last opposite-body candle before BOS/MSS if impulse ≥ `1.2×ATR`. Dead after a closing break. |
+| **FVG** | 3-candle gap (`low[i] > high[i-2]`). Min `0.10×ATR`. Valid until fully filled. |
+| **BOS** | Continuation: close beyond last **internal** swing with the trend. |
+| **CHoCH** | First reversal: close beyond last **internal** swing against the trend. Not a standalone trigger. |
+| **MSS** | External reversal: close beyond last **external** swing against the trend. Priority MSS > CHoCH > BOS. |
 
-Entry sequence: **H1 bias → M30 confirmation → liquidity sweep → M15 OB/FVG tap + structure event → score ≥ 70 → order**.
+Print the same definitions: `python -m smc_robot explain`
 
-## Risk and execution
+## Hybrid entry
 
-- SL is taken from the setup (sweep wick, OB, or FVG), not a fixed point distance. TP is **1:2**.
-- Lot size: every **$100** of balance adds **0.01** lots, then snapped to the broker min / step / max.
-- Maximum **1** open position. After it closes, the next valid setup can be taken the same day.
-- At **+1R**, SL is moved to breakeven. TP stays at +2R.
-- Orders are blocked when spread exceeds the cap, spikes versus the recent median, the quote is stale, or slippage protection would be exceeded. High-impact news is **not** auto-filtered.
+Trade only when all of these agree:
+
+H1 bias + M30 confirm + liquidity sweep + OB or FVG + M15 BOS/CHoCH/MSS + ML probability ≥ threshold + grade in `{A+, A}` + spread/margin/daily-risk checks.
+
+## Risk
+
+- Primary lot size: **percent of equity** from SL distance and tick value.
+- Default RR **1:2**. TP can clip before obvious opposing liquidity if 1.2R still remains.
+- Max **1** open position.
+- Daily loss / trade / consecutive-loss stops.
+- Breakeven at **+1R**. Structure trail from **+1.5R**.
+- News is configurable (`allow`, `avoid_high`, `window`, `after_only`). Default is `allow`.
 
 ## Run
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env   # set MT5_LOGIN / MT5_PASSWORD / MT5_SERVER on Windows
-python -m smc_robot --mode dry    # MT5 data, no orders
-python -m smc_robot --mode live   # MT5 execution
-python -m smc_robot --mode paper  # in-memory broker
+python -m smc_robot explain
+python -m smc_robot --mode paper
+python -m smc_robot train --out models/smc_scorer.joblib
+python -m smc_robot backtest
+python -m smc_robot walk-forward
 pytest
 ```
 
-Live mode needs the `MetaTrader5` package on Windows with a running MT5 terminal. Linux CI uses the paper broker and the SMC unit tests.
+Windows + running MT5 terminal:
 
-Config lives in `config/default.yaml`.
+```bash
+pip install MetaTrader5
+python -m smc_robot --mode dry      # data only
+python -m smc_robot --mode live     # Python API orders
+python -m smc_robot --mode bridge   # Python writes files, MQL5 EA executes
+```
+
+## MQL5 bridge
+
+1. Compile `pyhonAI_SMC.mq5` (or `PythonAI_SMC.mq5`) in MetaEditor — this EA does **not** invent trades.
+2. Attach it to XAUUSDm.
+3. Python writes `Common/Files/smc_bridge/command.json`.
+4. The EA returns `status.json` (ticket, fill, errors, positions).
+
+If Python disconnects, the EA does not open new trades. It can still move SL to breakeven on an existing position.
+
+## ML
+
+Gradient Boosting on tabular SMC features. Train **offline only** (`python -m smc_robot train`). Live trades are logged; they do not auto-retrain the model.
+
+Always split **train → validation (threshold) → held-out test**. Walk-forward repeats that window.
+
+Config: `config/default.yaml`.

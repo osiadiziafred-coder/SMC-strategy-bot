@@ -1,15 +1,20 @@
-"""Decision engine: H1 bias → M30 confirmation → liquidity/SMC → M15 entry → score → plan."""
+"""Hybrid pipeline: H1 → M30 → sweep → OB/FVG → M15 structure → ML → risk."""
 
 from __future__ import annotations
+
+import hashlib
 
 from smc_robot.config import Settings
 from smc_robot.models import Candle, Decision, Direction, Signal, Trend
 from smc_robot.risk.protection import Quote
 from smc_robot.risk.sizing import SymbolSpec
 from smc_robot.risk.trade_plan import build_trade_plan
-from smc_robot.scoring import SetupScorer, find_setup_parts
+from smc_robot.scoring import SetupScorer, find_setup_parts, nearest_opposing_liquidity
 from smc_robot.smc.analyze import analyze_timeframe
 from smc_robot.smc.conditions import analyze_conditions
+from smc_robot.smc.news import news_block_reason
+from smc_robot.smc.premium_discount import favors_setup, structure_premium_discount
+from smc_robot.smc.sessions import session_allowed
 from smc_robot.smc.structure import recent_events
 
 
@@ -36,10 +41,29 @@ class SmcEngine:
         m15_a = analyze_timeframe(m15, self.settings)
         conditions = analyze_conditions(m15, self.settings, quote.spread_points, recent_spreads)
 
+        ok_session, session_name = session_allowed(m15[-1].time, self.settings.sessions)
+        if not ok_session:
+            return Decision(action="skip", reason=session_name)
+
+        news_reason = news_block_reason(m15[-1].time, self.settings.news)
+        if news_reason:
+            return Decision(action="skip", reason=news_reason)
+
         if h1_a.trend == Trend.RANGING:
             return Decision(action="skip", reason="h1_ranging")
 
         direction = Direction.BUY if h1_a.trend == Trend.BULLISH else Direction.SELL
+        pd = structure_premium_discount(
+            m15_a.candles,
+            h1_a.external_swings,
+            direction,
+            self.settings.smc.discount_max,
+            self.settings.smc.premium_min,
+        )
+        conditions.premium_discount = pd
+        if self.settings.smc.require_premium_discount and not favors_setup(pd, direction):
+            return Decision(action="skip", reason="premium_discount_mismatch")
+
         sweep, order_block, fvg, m30_events = find_setup_parts(
             direction, m30_a, m15_a, self.settings
         )
@@ -60,9 +84,27 @@ class SmcEngine:
         if not m15_events:
             return Decision(action="skip", reason="no_m15_structure_confirmation")
 
+        if self.settings.scoring.require_ml and self.scorer._model is None:
+            return Decision(action="skip", reason="ml_model_unavailable")
+
         score = self.scorer.score(
             direction, h1_a, m30_a, m15_a, conditions, sweep, order_block, fvg
         )
+        if (
+            score.ml_probability is not None
+            and score.ml_probability < self.settings.scoring.ml_min_probability
+        ):
+            return Decision(
+                action="skip",
+                reason=f"ml_probability_{score.ml_probability:.2f}_below_{self.settings.scoring.ml_min_probability}",
+                score=score,
+            )
+        if score.grade.value not in self.settings.scoring.allowed_grades:
+            return Decision(
+                action="skip",
+                reason=f"setup_grade_{score.grade.value}_not_allowed",
+                score=score,
+            )
         if score.total < self.settings.scoring.min_score:
             return Decision(
                 action="skip",
@@ -71,6 +113,9 @@ class SmcEngine:
             )
 
         entry = quote.ask if direction == Direction.BUY else quote.bid
+        obstacle = nearest_opposing_liquidity(m15_a, direction, entry)
+        if obstacle is None:
+            obstacle = nearest_opposing_liquidity(m30_a, direction, entry)
         plan = build_trade_plan(
             direction,
             entry,
@@ -81,11 +126,15 @@ class SmcEngine:
             balance,
             spec,
             self.settings,
+            opposing_liquidity=obstacle,
         )
         if plan is None:
             return Decision(action="skip", reason="invalid_trade_plan", score=score)
 
+        raw = f"{self.settings.symbol}:{direction.value}:{m15[-1].time.isoformat()}"
+        signal_id = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
         signal = Signal(
+            signal_id=signal_id,
             direction=direction,
             plan=plan,
             score=score,
@@ -95,6 +144,7 @@ class SmcEngine:
             h1_trend=h1_a.trend,
             m30_trend=m30_a.trend,
             m15_trend=m15_a.trend,
-            reason="smc_confluence",
+            reason="smc_ml_confluence",
+            grade=score.grade,
         )
         return Decision(action=direction.value.lower(), reason="take_setup", score=score, signal=signal)

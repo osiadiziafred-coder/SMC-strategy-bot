@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Single-file Python AI SMC robot for XAUUSDm on MetaTrader 5.
+"""Legacy single-file runner. Prefer: python -m smc_robot
 
-THIS IS PYTHON. Do not paste this file into MetaEditor / a .mq5 Expert Advisor.
-MetaEditor only compiles MQL5. Use pyhonAI_SMC.mq5 for MetaEditor.
+THIS IS PYTHON. Do not paste this file into MetaEditor.
+The full ML + bridge system lives in the smc_robot/ package.
+MetaEditor must compile pyhonAI_SMC.mq5 (execution bridge only).
 
 Save as smc_robot.py then:
 

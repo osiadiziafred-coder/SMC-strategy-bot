@@ -26,8 +26,10 @@ from __future__ import annotations
 import numpy as np
 
 from smc_robot.config import Settings
-from smc_robot.models import Candle, MarketConditions
+from smc_robot.models import Candle, MarketConditions, PremiumDiscount, SessionName
+from smc_robot.smc.displacement import detect_displacement
 from smc_robot.smc.indicators import atr, efficiency_ratio
+from smc_robot.smc.sessions import classify_session
 
 
 def analyze_conditions(
@@ -60,6 +62,14 @@ def analyze_conditions(
         reasons.append("spread_spike")
 
     poor = bool(reasons)
+    session = SessionName.OFF
+    if candles:
+        session = classify_session(candles[-1].time, settings.sessions)
+    displacement = detect_displacement(
+        candles,
+        settings.smc.atr_period,
+        settings.smc.displacement_body_atr,
+    )
     return MarketConditions(
         atr=current_atr,
         atr_ratio=atr_ratio,
@@ -68,6 +78,11 @@ def analyze_conditions(
         spread_ratio=spread_ratio,
         choppy=choppy,
         extreme_volatility=extreme,
+        low_volatility=low_vol,
+        high_volatility=atr_ratio > 1.40,
         poor=poor,
         reasons=reasons,
+        session=session,
+        displacement=displacement,
+        premium_discount=PremiumDiscount(),
     )

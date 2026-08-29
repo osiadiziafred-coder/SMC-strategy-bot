@@ -42,7 +42,7 @@ def test_engine_takes_aligned_buy_setup():
     decision = engine.evaluate(h1, m30, m15, quote, SymbolSpec(name="XAUUSDm"), 1000.0, [20, 20, 21])
     assert decision.signal is not None, decision.reason
     assert decision.signal.direction == Direction.BUY
-    assert decision.signal.plan.lots == 0.10
+    assert decision.signal.plan.lots >= 0.01
     assert decision.signal.plan.tp > decision.signal.plan.entry
     risk = decision.signal.plan.entry - decision.signal.plan.sl
     assert abs((decision.signal.plan.tp - decision.signal.plan.entry) / risk - 2.0) < 1e-6

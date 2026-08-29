@@ -52,10 +52,16 @@ def analyze_timeframe(candles: list[Candle], settings: Settings) -> TimeframeAna
     fvgs = unfilled_fvgs(
         candles, detect_fvgs(candles, smc.fvg_min_atr_mult, smc.atr_period)
     )
-    pools = build_liquidity_pools(
+    internal_pools = build_liquidity_pools(
         internal, candles, smc.equal_level_atr_mult, smc.atr_period
     )
-    sweeps = detect_sweeps(candles, pools)
+    external_pools = build_liquidity_pools(
+        external, candles, smc.equal_level_atr_mult, smc.atr_period
+    )
+    pools = internal_pools + external_pools
+    sweeps = detect_sweeps(candles, internal_pools, pool_scope="internal")
+    sweeps.extend(detect_sweeps(candles, external_pools, pool_scope="external"))
+    sweeps = sorted(sweeps, key=lambda s: s.index)
     zones = liquidity_zones(pools, candles, smc.atr_period)
     return TimeframeAnalysis(
         candles=candles,

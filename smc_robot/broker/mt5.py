@@ -73,6 +73,9 @@ class MT5Broker(Broker):
             volume_step=float(info.volume_step),
             trade_stops_level=int(info.trade_stops_level),
             filling_mode=int(info.filling_mode),
+            tick_size=float(getattr(info, "trade_tick_size", 0) or info.point),
+            tick_value=float(getattr(info, "trade_tick_value", 0) or 1.0),
+            margin_initial=float(getattr(info, "margin_initial", 0) or 0.0),
         )
 
     def account_balance(self) -> float:

@@ -35,6 +35,28 @@ class SwingKind(str, Enum):
     LOW = "LOW"
 
 
+class SetupGrade(str, Enum):
+    A_PLUS = "A+"
+    A = "A"
+    B = "B"
+    C = "C"
+
+
+class SessionName(str, Enum):
+    ASIAN = "ASIAN"
+    LONDON = "LONDON"
+    NEW_YORK = "NEW_YORK"
+    OVERLAP = "LONDON_NY_OVERLAP"
+    OFF = "OFF"
+
+
+class NewsMode(str, Enum):
+    ALLOW = "allow"
+    AVOID_HIGH = "avoid_high"
+    WINDOW = "window"
+    AFTER_ONLY = "after_only"
+
+
 class Candle(BaseModel):
     time: datetime
     open: float
@@ -63,6 +85,14 @@ class Candle(BaseModel):
     @property
     def midpoint(self) -> float:
         return (self.high + self.low) / 2.0
+
+    @property
+    def upper_wick(self) -> float:
+        return self.high - max(self.open, self.close)
+
+    @property
+    def lower_wick(self) -> float:
+        return min(self.open, self.close) - self.low
 
 
 class Swing(BaseModel):
@@ -115,6 +145,25 @@ class LiquiditySweep(BaseModel):
     wick: float
     close: float
     equal_liquidity: bool = False
+    members: int = 1
+    rejection_ratio: float = 0.0
+    pool_scope: str = "internal"
+    extra: dict = Field(default_factory=dict)
+
+
+class Displacement(BaseModel):
+    body_atr: float = 0.0
+    wick_body_ratio: float = 0.0
+    consecutive: int = 0
+    strong: bool = False
+
+
+class PremiumDiscount(BaseModel):
+    range_low: float = 0.0
+    range_high: float = 0.0
+    position: float = 0.5
+    in_discount: bool = False
+    in_premium: bool = False
 
 
 class MarketConditions(BaseModel):
@@ -125,14 +174,21 @@ class MarketConditions(BaseModel):
     spread_ratio: float
     choppy: bool
     extreme_volatility: bool
+    low_volatility: bool = False
+    high_volatility: bool = False
     poor: bool
     reasons: list[str] = Field(default_factory=list)
+    session: SessionName = SessionName.OFF
+    displacement: Displacement = Field(default_factory=Displacement)
+    premium_discount: PremiumDiscount = Field(default_factory=PremiumDiscount)
 
 
 class ScoreBreakdown(BaseModel):
     total: float
     rule_score: float
     ml_score: Optional[float] = None
+    ml_probability: Optional[float] = None
+    grade: SetupGrade = SetupGrade.C
     components: dict[str, float] = Field(default_factory=dict)
     features: dict[str, float] = Field(default_factory=dict)
 
@@ -145,6 +201,8 @@ class TradePlan(BaseModel):
     risk: float
     lots: float
     sl_source: str
+    risk_amount: float = 0.0
+    tp_adjusted: bool = False
 
     @property
     def one_r(self) -> float:
@@ -152,6 +210,7 @@ class TradePlan(BaseModel):
 
 
 class Signal(BaseModel):
+    signal_id: str
     direction: Direction
     plan: TradePlan
     score: ScoreBreakdown
@@ -162,6 +221,7 @@ class Signal(BaseModel):
     m30_trend: Trend
     m15_trend: Trend
     reason: str
+    grade: SetupGrade = SetupGrade.C
 
 
 class Decision(BaseModel):
@@ -182,5 +242,38 @@ class Position(BaseModel):
     initial_sl: float
     initial_risk: float
     breakeven_applied: bool = False
+    trailing_applied: bool = False
     magic: int = 0
     comment: str = ""
+    signal_id: str = ""
+
+
+class DecisionRecord(BaseModel):
+    time: datetime
+    symbol: str
+    action: str
+    reason: str
+    direction: Optional[str] = None
+    h1_trend: Optional[str] = None
+    m30_trend: Optional[str] = None
+    m15_trend: Optional[str] = None
+    bos: bool = False
+    mss: bool = False
+    choch: bool = False
+    liquidity_sweep: bool = False
+    equal_liquidity: bool = False
+    order_block: bool = False
+    fvg: bool = False
+    atr: float = 0.0
+    spread: float = 0.0
+    session: Optional[str] = None
+    ml_probability: Optional[float] = None
+    rule_score: Optional[float] = None
+    final_score: Optional[float] = None
+    grade: Optional[str] = None
+    entry: Optional[float] = None
+    sl: Optional[float] = None
+    tp: Optional[float] = None
+    lots: Optional[float] = None
+    signal_id: Optional[str] = None
+    result: Optional[str] = None
