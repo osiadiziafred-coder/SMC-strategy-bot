@@ -42,6 +42,17 @@ class SmcRobot:
         self._last_signal_id: str | None = None
         self._known_tickets: set[int] = set()
 
+    def _needs_trained_model(self) -> bool:
+        if self.settings.scoring.require_ml:
+            return True
+        if self.dry_run:
+            return False
+        if self.use_bridge:
+            return True
+        from smc_robot.broker.paper import PaperBroker
+
+        return not isinstance(self.broker, PaperBroker)
+
     def run_forever(self) -> None:
         self.broker.connect()
         logger.info(
@@ -127,9 +138,22 @@ class SmcRobot:
         self.journal.write(symbol, decision, quote.spread_points)
         logger.info("Decision action=%s reason=%s", decision.action, decision.reason)
         if decision.signal is None:
+            if self.use_bridge and self.bridge is not None:
+                self.bridge.send_none(decision.reason)
             return decision.reason
 
+        if self._needs_trained_model() and self.engine.scorer._model is None:
+            if self.use_bridge and self.bridge is not None:
+                self.bridge.send_none("ml_model_unavailable")
+            return "ml_model_unavailable"
+
         signal = decision.signal
+        blocked = _preflight(signal, spec)
+        if blocked:
+            if self.use_bridge and self.bridge is not None:
+                self.bridge.send_none(blocked)
+            logger.warning("Preflight blocked: %s", blocked)
+            return f"blocked:{blocked}"
         if self.daily.last_was_loss and self.settings.cooldown.stronger_after_loss:
             if signal.grade.value != self.settings.cooldown.loss_min_grade:
                 return "stronger_setup_required_after_loss"
@@ -228,6 +252,22 @@ def _structure_trail_price(candles, settings: Settings) -> float | None:
         highs = last_swings(analysis.internal_swings, SwingKind.HIGH, last, 1)
         return highs[-1].price if highs else None
     return None
+
+
+def _preflight(signal, spec) -> str:
+    plan = signal.plan
+    if plan.lots < spec.volume_min or plan.lots > spec.volume_max:
+        return "lot_outside_broker_limits"
+    if plan.sl <= 0 or plan.tp <= 0 or plan.entry <= 0 or plan.risk <= 0:
+        return "invalid_sl_tp"
+    rr = abs(plan.tp - plan.entry) / plan.risk
+    floor = 1.15 if plan.tp_adjusted else 1.70
+    if rr + 1e-9 < floor:
+        return f"rr_{rr:.2f}_below_{floor:.2f}"
+    if signal.score.ml_probability is not None:
+        # already gated in the engine; keep a last-line check here
+        pass
+    return ""
 
 
 __all__ = ["SmcRobot", "configure_logging"]

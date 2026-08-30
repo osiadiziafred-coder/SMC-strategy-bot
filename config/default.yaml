@@ -30,9 +30,9 @@ smc:
 scoring:
   min_score: 70.0
   use_ml: true
-  require_ml: false
+  require_ml: true
   ml_blend: 0.40
-  ml_min_probability: 0.60
+  ml_min_probability: 0.70
   model_path: models/smc_scorer.joblib
   allowed_grades: ["A+", "A"]
   weights:

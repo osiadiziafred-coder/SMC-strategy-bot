@@ -25,6 +25,19 @@ class FileBridge:
         self.status_path = self.directory / settings.bridge.status_file
         self._last_sent = ""
 
+    def send_none(self, reason: str = "no_setup") -> str:
+        cmd_id = f"none-{int(time.time() * 1000)}"
+        self._write_command(
+            {
+                "action": "NONE",
+                "id": cmd_id,
+                "symbol": self.settings.symbol,
+                "reason": reason,
+                "time": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        return cmd_id
+
     def heartbeat(self) -> None:
         self._write_command(
             {
@@ -55,7 +68,9 @@ class FileBridge:
             "comment": (self.settings.risk.comment + "-" + signal.signal_id)[:31],
             "breakeven_r": self.settings.risk.breakeven_r,
             "trail_start_r": self.settings.risk.trail_start_r,
-            "trail_enabled": 1 if self.settings.risk.trail_enabled else 0,
+            "ml_buy_probability": signal.score.ml_buy_probability,
+            "ml_sell_probability": signal.score.ml_sell_probability,
+            "trail_enabled": bool(self.settings.risk.trail_enabled),
             "time": datetime.now(timezone.utc).isoformat(),
         }
         self._write_command(command)

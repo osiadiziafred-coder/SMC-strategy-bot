@@ -138,6 +138,25 @@ def test_default_lot_mode_is_balance_step():
     assert Settings().risk.sizing_mode == "balance_step"
 
 
+def test_none_command_and_boolean_trail_flag(tmp_path: Path):
+    settings = Settings()
+    settings.bridge.directory = str(tmp_path)
+    settings.risk.trail_enabled = True
+    bridge = FileBridge(settings)
+    none_id = bridge.send_none("weak_setup")
+    assert none_id
+    text = (tmp_path / "command.json").read_text(encoding="utf-8")
+    assert '"action": "NONE"' in text
+    executor = Mql5PaperExecutor(settings)
+    result = executor.process_once()["last_result"]
+    assert result["error"] == "heartbeat"
+    sid = bridge.send_signal(_test_signal("bool-trail"))
+    assert sid
+    payload = (tmp_path / "command.json").read_text(encoding="utf-8")
+    assert "true" in payload
+    assert "trail_enabled" in payload
+
+
 def test_concepts_cover_requested_terms():
     text = render_concepts()
     for word in ("LIQUIDITY SWEEP", "EQUAL-LIQUIDITY", "ORDER BLOCK", "FAIR VALUE GAP", "BOS", "CHOCH", "MSS"):

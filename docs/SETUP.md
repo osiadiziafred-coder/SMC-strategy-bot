@@ -2,6 +2,16 @@
 
 Python is the brain. The `.mq5` file is only the MetaTrader 5 execution arm. Never paste Python into MetaEditor.
 
+Quick start:
+
+1. `pip install -r requirements.txt`
+2. Compile `PythonML_SMC_Bridge.mq5` in MetaEditor (F7, 0 errors) and attach it to XAUUSDm.
+3. `python train_model.py --out models/smc_scorer.joblib`
+4. Point `bridge.directory` at `Common\Files\smc_bridge`.
+5. `python smc_ml_brain.py --mode bridge`
+
+Live/bridge mode will not send BUY/SELL unless the trained model file is loaded.
+
 ## What you need
 
 - Windows PC with a running **MetaTrader 5** terminal

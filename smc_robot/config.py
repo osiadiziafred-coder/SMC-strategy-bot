@@ -59,7 +59,7 @@ class ScoringConfig(BaseModel):
     use_ml: bool = True
     require_ml: bool = False
     ml_blend: float = 0.40
-    ml_min_probability: float = 0.60
+    ml_min_probability: float = 0.70
     model_path: str = "models/smc_scorer.joblib"
     allowed_grades: list[str] = Field(default_factory=lambda: ["A+", "A"])
     weights: ScoringWeights = Field(default_factory=ScoringWeights)
