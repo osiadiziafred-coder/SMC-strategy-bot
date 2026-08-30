@@ -51,6 +51,26 @@ H1 bias + M30 confirm + liquidity sweep + OB or FVG + M15 BOS/CHoCH/MSS + ML pro
 - Breakeven at **+1R**. Trail from **+1.5R** only when `trail_enabled` is true (`g_trailOn` in the EA). SL never loosens.
 - News: `trade_through_news: true` by default. Set it false to honor the calendar window.
 
+Named entry files (do not paste these into MetaEditor):
+
+| File | Role |
+|---|---|
+| `smc_ml_brain.py` | Live brain (`python smc_ml_brain.py --mode bridge`) |
+| `train_model.py` | Historical SMC feature training |
+| `features.py` | Feature engineering |
+| `smc_detector.py` | BOS/MSS/CHoCH/OB/FVG/liquidity |
+| `mt5_connector.py` | MT5 OHLCV/account |
+| `risk_manager.py` | Lots + structure SL/TP |
+| `command_manager.py` | `command.json` / `status.json` |
+| `config.py` | Settings loader |
+| `PythonML_SMC_Bridge.mq5` | Execution EA only |
+
+Train from time-ordered history (MT5 if connected, otherwise generated OHLCV — not random labels):
+
+```bash
+python train_model.py --out models/smc_scorer.joblib
+```
+
 Python package layout (spec names → modules):
 
 | Spec name | Location |

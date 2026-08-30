@@ -76,41 +76,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _cmd_train(argv: list[str]) -> int:
-    from pathlib import Path
+    from smc_robot.scoring.pipeline import main as train_main
 
-    import numpy as np
-
-    from smc_robot.scoring import FEATURE_NAMES
-    from smc_robot.scoring.train import chronological_split, pick_threshold, train_model
-
-    parser = argparse.ArgumentParser(description="Offline ML train (no live retrain)")
-    parser.add_argument("--out", default="models/smc_scorer.joblib")
-    parser.add_argument("--rows", type=int, default=240)
-    args = parser.parse_args(argv)
-    rng = np.random.default_rng(7)
-    n = args.rows
-    X = rng.normal(size=(n, len(FEATURE_NAMES)))
-    # Label: aligned HTF + sweep + MSS-like columns tend to win.
-    y = ((X[:, 3] + X[:, 11] + X[:, 10] + X[:, 21] * 0.3) > 0.15).astype(int)
-    y[0], y[1] = 0, 1
-    x_tr, y_tr, x_va, y_va, x_te, y_te = chronological_split(X, y)
-    model = train_model(x_tr, y_tr, args.out)
-    threshold = pick_threshold(model, x_va, y_va) if len(y_va) else 0.60
-    test_acc = float((model.predict(x_te) == y_te).mean()) if len(y_te) else 0.0
-    print(
-        json.dumps(
-            {
-                "model": args.out,
-                "features": FEATURE_NAMES,
-                "validation_threshold": threshold,
-                "held_out_accuracy": test_acc,
-                "note": "Retrain only through this offline command. Live trades do not auto-fit.",
-            },
-            indent=2,
-        )
-    )
-    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-    return 0
+    return train_main(argv)
 
 
 def _cmd_backtest(argv: list[str], walk: bool) -> int:

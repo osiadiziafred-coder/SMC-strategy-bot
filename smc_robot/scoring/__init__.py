@@ -63,6 +63,12 @@ FEATURE_NAMES = [
     "dist_recent_high",
     "dist_recent_low",
     "reward_ratio",
+    "candle_range_atr",
+    "volume_ratio",
+    "tick_volume",
+    "spread_points",
+    "atr_abs",
+    "mtf_aligned",
 ]
 
 
@@ -123,7 +129,15 @@ def extract_features(
     if fvg is not None and atr_v > 0:
         fvg_size = (fvg.high - fvg.low) / atr_v
     hour = last_c.time.hour + last_c.time.minute / 60.0
-    return {
+    vols = [c.volume for c in recent if c.volume > 0]
+    vol_med = float(np.median(vols)) if vols else 1.0
+    range_atr = (last_c.range / atr_v) if atr_v > 0 else 0.0
+    mtf = 1.0 if (
+        _trend_value(h1.trend, direction) > 0
+        and _trend_value(m30.trend, direction) > 0
+        and _trend_value(m15.trend, direction) > 0
+    ) else 0.0
+    raw = {
         "h1_trend": h1_value,
         "m30_trend": _trend_value(m30.trend, direction),
         "m15_trend": _trend_value(m15.trend, direction),
@@ -160,7 +174,14 @@ def extract_features(
         "dist_recent_high": _atr_dist(price, recent_high, atr_v),
         "dist_recent_low": _atr_dist(price, recent_low, atr_v),
         "reward_ratio": settings.risk.reward_ratio,
+        "candle_range_atr": range_atr,
+        "volume_ratio": (last_c.volume / vol_med) if vol_med > 0 else 0.0,
+        "tick_volume": last_c.volume,
+        "spread_points": conditions.spread,
+        "atr_abs": atr_v,
+        "mtf_aligned": mtf,
     }
+    return sanitize_features(raw)
 
 
 def _atr_dist(price: float, ref: float | None, atr_v: float) -> float:
@@ -169,8 +190,46 @@ def _atr_dist(price: float, ref: float | None, atr_v: float) -> float:
     return abs(price - ref) / atr_v
 
 
+def sanitize_features(features: dict[str, float]) -> dict[str, float]:
+    clean: dict[str, float] = {}
+    for name in FEATURE_NAMES:
+        value = features.get(name, 0.0)
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            number = 0.0
+        if not np.isfinite(number):
+            number = 0.0
+        clean[name] = number
+    return clean
+
+
 def feature_vector(features: dict[str, float]) -> np.ndarray:
-    return np.array([float(features.get(name, 0.0)) for name in FEATURE_NAMES], dtype=float)
+    safe = sanitize_features(features)
+    return np.array([safe[name] for name in FEATURE_NAMES], dtype=float)
+
+
+def explain_prediction(
+    features: dict[str, float],
+    importances: dict[str, float] | None,
+    limit: int = 6,
+) -> list[dict[str, float | str]]:
+    if not importances:
+        ranked = sorted(
+            ((name, abs(float(features.get(name, 0.0)))) for name in FEATURE_NAMES),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+    else:
+        ranked = sorted(
+            (
+                (name, float(importances.get(name, 0.0)) * (1.0 + abs(float(features.get(name, 0.0)))))
+                for name in FEATURE_NAMES
+            ),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+    return [{"feature": name, "weight": round(weight, 6)} for name, weight in ranked[:limit] if weight]
 
 
 def rule_score(features: dict[str, float], settings: Settings) -> tuple[float, dict[str, float]]:
@@ -246,6 +305,7 @@ class SetupScorer:
     def __init__(self, settings: Settings):
         self.settings = settings
         self._model = None
+        self.importances: dict[str, float] = {}
         if settings.scoring.use_ml:
             self._model = self._load_model(settings.scoring.model_path)
 
@@ -258,8 +318,22 @@ class SetupScorer:
 
             payload = joblib.load(model_path)
             if isinstance(payload, dict) and "model" in payload:
+                raw_imp = payload.get("feature_importance") or {}
+                self.importances = {str(k): float(v) for k, v in raw_imp.items()}
                 return payload["model"]
             return payload
+        except Exception:
+            return None
+
+    def predict_success(self, features: dict[str, float]) -> float | None:
+        if self._model is None:
+            return None
+        vector = feature_vector(features).reshape(1, -1)
+        try:
+            proba = self._model.predict_proba(vector)[0]
+            if len(proba) < 2:
+                return None
+            return float(proba[1])
         except Exception:
             return None
 
@@ -273,34 +347,33 @@ class SetupScorer:
         sweep: Optional[LiquiditySweep],
         order_block: Optional[Zone],
         fvg: Optional[Zone],
+        opposite_probability: float | None = None,
     ) -> ScoreBreakdown:
         features = extract_features(
             direction, h1, m30, m15, conditions, self.settings, sweep, order_block, fvg
         )
         rules, components = rule_score(features, self.settings)
         ml_score: Optional[float] = None
-        ml_probability: Optional[float] = None
+        ml_probability = self.predict_success(features)
         total = rules
-        if self._model is not None:
-            vector = feature_vector(features).reshape(1, -1)
-            try:
-                proba = float(self._model.predict_proba(vector)[0][1])
-                ml_probability = proba
-                ml_score = proba * 100.0
-                blend = self.settings.scoring.ml_blend
-                total = (1.0 - blend) * rules + blend * ml_score
-            except Exception:
-                ml_score = None
-                ml_probability = None
+        if ml_probability is not None:
+            ml_score = ml_probability * 100.0
+            blend = self.settings.scoring.ml_blend
+            total = (1.0 - blend) * rules + blend * ml_score
+        buy_p = ml_probability if direction == Direction.BUY else opposite_probability
+        sell_p = ml_probability if direction == Direction.SELL else opposite_probability
         grade = grade_setup(features, ml_probability, rules)
         return ScoreBreakdown(
             total=total,
             rule_score=rules,
             ml_score=ml_score,
             ml_probability=ml_probability,
+            ml_buy_probability=buy_p,
+            ml_sell_probability=sell_p,
             grade=grade,
             components=components,
             features=features,
+            explanation=explain_prediction(features, self.importances),
         )
 
 

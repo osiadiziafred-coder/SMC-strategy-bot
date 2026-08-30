@@ -13,15 +13,57 @@ def _candidates():
     from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
     from sklearn.linear_model import LogisticRegression
 
-    return {
-        "gradient_boosting": GradientBoostingClassifier(
-            n_estimators=120, max_depth=3, learning_rate=0.06, random_state=42
-        ),
-        "random_forest": RandomForestClassifier(
-            n_estimators=160, max_depth=5, min_samples_leaf=4, random_state=42
-        ),
-        "logistic": LogisticRegression(max_iter=400, random_state=42),
-    }
+    models = {}
+    try:
+        from xgboost import XGBClassifier
+
+        models["xgboost"] = XGBClassifier(
+            n_estimators=160,
+            max_depth=4,
+            learning_rate=0.06,
+            subsample=0.9,
+            colsample_bytree=0.9,
+            eval_metric="logloss",
+            n_jobs=1,
+            random_state=42,
+        )
+    except Exception:
+        pass
+    try:
+        from lightgbm import LGBMClassifier
+
+        models["lightgbm"] = LGBMClassifier(
+            n_estimators=160,
+            max_depth=4,
+            learning_rate=0.06,
+            subsample=0.9,
+            colsample_bytree=0.9,
+            random_state=42,
+            verbose=-1,
+        )
+    except Exception:
+        pass
+    models["gradient_boosting"] = GradientBoostingClassifier(
+        n_estimators=120, max_depth=3, learning_rate=0.06, random_state=42
+    )
+    models["random_forest"] = RandomForestClassifier(
+        n_estimators=160, max_depth=5, min_samples_leaf=4, random_state=42
+    )
+    models["logistic"] = LogisticRegression(max_iter=400, random_state=42)
+    return models
+
+
+def feature_importance_map(model) -> dict[str, float]:
+    values = getattr(model, "feature_importances_", None)
+    if values is None:
+        coef = getattr(model, "coef_", None)
+        if coef is None:
+            return {}
+        values = np.abs(np.ravel(coef))
+    if len(values) != len(FEATURE_NAMES):
+        return {}
+    total = float(np.sum(values)) or 1.0
+    return {name: float(val) / total for name, val in zip(FEATURE_NAMES, values)}
 
 
 def _valid_score(model, features: np.ndarray, labels: np.ndarray) -> float:
@@ -77,6 +119,8 @@ def train_model(features: np.ndarray, labels: np.ndarray, path: str | Path):
             "trained_offline": True,
             "selected_model": name,
             "validation_scores": scores,
+            "feature_importance": feature_importance_map(model),
+            "shuffle": False,
         },
         target,
     )

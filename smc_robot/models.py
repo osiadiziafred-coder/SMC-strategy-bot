@@ -188,9 +188,12 @@ class ScoreBreakdown(BaseModel):
     rule_score: float
     ml_score: Optional[float] = None
     ml_probability: Optional[float] = None
+    ml_buy_probability: Optional[float] = None
+    ml_sell_probability: Optional[float] = None
     grade: SetupGrade = SetupGrade.C
     components: dict[str, float] = Field(default_factory=dict)
     features: dict[str, float] = Field(default_factory=dict)
+    explanation: list[dict] = Field(default_factory=list)
 
 
 class TradePlan(BaseModel):
@@ -283,3 +286,8 @@ class DecisionRecord(BaseModel):
     mfe: Optional[float] = None
     mae: Optional[float] = None
     fill_price: Optional[float] = None
+    ml_buy_probability: Optional[float] = None
+    ml_sell_probability: Optional[float] = None
+    explanation: list[dict] = Field(default_factory=list)
+    summary: Optional[str] = None
+    features: dict[str, float] = Field(default_factory=dict)

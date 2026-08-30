@@ -87,9 +87,28 @@ class SmcEngine:
         if self.settings.scoring.require_ml and self.scorer._model is None:
             return Decision(action="skip", reason="ml_model_unavailable")
 
-        score = self.scorer.score(
-            direction, h1_a, m30_a, m15_a, conditions, sweep, order_block, fvg
+        opposite = Direction.SELL if direction == Direction.BUY else Direction.BUY
+        opp_sweep, opp_ob, opp_fvg, _ = find_setup_parts(opposite, m30_a, m15_a, self.settings)
+        opp_features = self.scorer.score(
+            opposite, h1_a, m30_a, m15_a, conditions, opp_sweep, opp_ob, opp_fvg
         )
+        score = self.scorer.score(
+            direction,
+            h1_a,
+            m30_a,
+            m15_a,
+            conditions,
+            sweep,
+            order_block,
+            fvg,
+            opposite_probability=opp_features.ml_probability,
+        )
+        if direction == Direction.BUY:
+            score.ml_buy_probability = score.ml_probability
+            score.ml_sell_probability = opp_features.ml_probability
+        else:
+            score.ml_sell_probability = score.ml_probability
+            score.ml_buy_probability = opp_features.ml_probability
         if (
             score.ml_probability is not None
             and score.ml_probability < self.settings.scoring.ml_min_probability
@@ -97,6 +116,19 @@ class SmcEngine:
             return Decision(
                 action="skip",
                 reason=f"ml_probability_{score.ml_probability:.2f}_below_{self.settings.scoring.ml_min_probability}",
+                score=score,
+            )
+        if (
+            score.ml_probability is not None
+            and opp_features.ml_probability is not None
+            and opp_features.ml_probability >= score.ml_probability
+        ):
+            return Decision(
+                action="skip",
+                reason=(
+                    f"ml_conflict_buy_{score.ml_buy_probability:.2f}"
+                    f"_sell_{score.ml_sell_probability:.2f}"
+                ),
                 score=score,
             )
         if score.grade.value not in self.settings.scoring.allowed_grades:

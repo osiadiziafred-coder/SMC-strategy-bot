@@ -52,10 +52,14 @@ On Windows, point `bridge.directory` in YAML at that Common Files folder, for ex
 ## 3. Train the model offline
 
 ```bash
+python train_model.py --out models/smc_scorer.joblib
+# or
 python -m smc_robot train --out models/smc_scorer.joblib
 ```
 
-The trainer compares Gradient Boosting, Random Forest, and Logistic Regression on a **validation** split, then reports held-out test accuracy. Live trades do not auto-retrain.
+The trainer downloads XAUUSDm H1/M30/M15 from MT5 when the terminal is available. Otherwise it uses a time-ordered gold-like OHLCV series. It extracts real SMC features, labels from **future** candles only, splits train → validation → test **without shuffling**, and saves `models/smc_scorer.joblib`.
+
+It prefers XGBoost, then LightGBM, then sklearn Gradient Boosting / Random Forest. Live trades load this file; they do not refit.
 
 ## 4. Start the system
 
