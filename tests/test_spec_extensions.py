@@ -113,6 +113,9 @@ def test_wait_for_result_after_heartbeat(tmp_path: Path):
     text = (tmp_path / "command.json").read_text(encoding="utf-8")
     assert "smc_score" in text
     assert "spec_test" in text
+    assert "trail_enabled" in text
+    status = bridge.read_status()
+    assert "trail_on" in status
 
 
 def test_modify_never_loosens_sl(tmp_path: Path):

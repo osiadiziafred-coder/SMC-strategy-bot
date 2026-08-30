@@ -34,7 +34,16 @@ def _mql5_static(path: Path) -> tuple[bool, str]:
     banned = ("def ", "from __future__", '"""', "import numpy")
     if any(token in text for token in banned):
         return False, "python_tokens_in_mq5"
-    need = ("#property", "#include <Trade/Trade.mqh>", "int OnInit()", "void OnTick()", "CTrade")
+    need = (
+        "#property",
+        "#include <Trade/Trade.mqh>",
+        "int OnInit()",
+        "void OnTick()",
+        "CTrade",
+        "g_trailOn",
+        "g_trailOn && fav >= g_trailR * risk",
+        "trail_enabled",
+    )
     missing = [item for item in need if item not in text]
     if missing:
         return False, "missing:" + ",".join(missing)

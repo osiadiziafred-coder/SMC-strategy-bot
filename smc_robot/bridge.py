@@ -180,6 +180,7 @@ class Mql5PaperExecutor:
         self._ticket = 1000
         self._last_python = 0.0
         self._last_result: dict[str, Any] = {}
+        self.trail_on = bool(settings.risk.trail_enabled)
 
     def python_fresh(self) -> bool:
         if self._last_python <= 0:
@@ -205,6 +206,9 @@ class Mql5PaperExecutor:
             self.last_id = cmd_id
             return self._write_status(False, 0, 0.0, 0.0, 0.0, "python_disconnected", cmd_id)
         self._last_python = time.time()
+        if "trail_enabled" in cmd:
+            flag = cmd.get("trail_enabled")
+            self.trail_on = bool(flag) and flag not in (0, "0", "false", "False")
         if action in ("BUY", "SELL"):
             if self.positions:
                 self.last_id = cmd_id
@@ -276,6 +280,7 @@ class Mql5PaperExecutor:
         payload = {
             "connected": True,
             "python_fresh": self.python_fresh(),
+            "trail_on": self.trail_on,
             "symbol": self.settings.symbol,
             "bid": self.bid,
             "ask": self.ask,

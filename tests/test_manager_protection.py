@@ -34,6 +34,27 @@ def test_breakeven_at_plus_one_r():
     assert broker.positions[0].tp == 2020.0
 
 
+def test_trail_disabled_does_not_move_stop():
+    broker = PaperBroker(balance=1000.0, bid=2000.0, ask=2000.2)
+    settings = Settings()
+    settings.risk.trail_enabled = False
+    manager = PositionManager(broker, settings)
+    position = broker.market_order(
+        symbol="XAUUSDm",
+        direction=Direction.BUY,
+        lots=0.10,
+        sl=1990.0,
+        tp=2020.0,
+        deviation_points=40,
+        magic=settings.risk.magic,
+        comment="test",
+    )
+    broker.set_quote(position.entry + 1.6 * position.initial_risk, position.entry + 1.6 * position.initial_risk + 0.2)
+    manager.manage("XAUUSDm", broker.quote("XAUUSDm"), structure_sl=position.entry + 4.0)
+    assert broker.positions[0].sl == position.entry
+    assert broker.positions[0].trailing_applied is False
+
+
 def test_trail_never_loosens_stop():
     broker = PaperBroker(balance=1000.0, bid=2000.0, ask=2000.2)
     settings = Settings()

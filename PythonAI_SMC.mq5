@@ -1,12 +1,13 @@
 #property copyright "Python ML SMC Robot"
-#property version   "3.00"
+#property version   "3.01"
 #property description "MQL5 safety bridge only. Python decides. Do not paste Python here."
 
 //+------------------------------------------------------------------+
 //| PythonML_SMC_Bridge.mq5                                          |
-//| Execution arm. Python writes command.json; this EA validates,    |
-//| trades, protects open positions, and writes status.json.         |
-//| File -> Open Data Folder -> MQL5\Experts                         |
+//| TWO PROGRAMS:                                                    |
+//|   Python = ML/SMC brain (H1/M30/M15, BOS/MSS/CHoCH/OB/FVG,       |
+//|            liquidity, score, lots, command.json)                 |
+//|   This EA = execute + protect only (never invent BUY/SELL)       |
 //| Common\Files\smc_bridge\command.json  /  status.json             |
 //+------------------------------------------------------------------+
 
@@ -18,6 +19,7 @@ input int    InpMaxSpreadPoints    = 80;
 input int    InpSlippagePoints     = 40;
 input double InpDefaultBeR         = 1.0;
 input double InpDefaultTrailR      = 1.5;
+input bool   InpTrailEnabled       = true;
 input double InpTrailLockR         = 0.50;
 input double InpBeBufferPoints     = 0.0;
 input bool   InpProtectIfPythonLost = true;
@@ -29,6 +31,7 @@ string   g_lastId = "";
 datetime g_lastPython = 0;
 double   g_beR = 1.0;
 double   g_trailR = 1.5;
+bool     g_trailOn = true;
 double   g_trailLock = 0.50;
 double   g_beBuffer = 0.0;
 int      g_lastRetcode = 0;
@@ -44,6 +47,7 @@ int OnInit()
    trade.SetDeviationInPoints(InpSlippagePoints);
    g_beR = InpDefaultBeR;
    g_trailR = InpDefaultTrailR;
+   g_trailOn = InpTrailEnabled;
    g_trailLock = InpTrailLockR;
    g_beBuffer = InpBeBufferPoints * SymbolInfoDouble(InpSymbol, SYMBOL_POINT);
    if(!SymbolSelect(InpSymbol, true))
@@ -131,6 +135,8 @@ void ReadAndExecuteCommand()
    double tr = JsonNumber(raw, "trail_start_r");
    if(tr > 0.0)
       g_trailR = tr;
+   if(HasJsonKey(raw, "trail_enabled"))
+      g_trailOn = JsonFlag(raw, "trail_enabled", g_trailOn);
 
    string err = BrokerBlockReason(symbol, lots, sl, tp, action);
    if(err != "" && (action == "BUY" || action == "SELL"))
@@ -299,7 +305,7 @@ void LocalManage()
          if(fav >= g_beR * risk && SlIsImprovement(type, be, sl) && bid - be >= need)
             SafeModify(ticket, be, tp, "breakeven");
          sl = PositionGetDouble(POSITION_SL);
-         if(fav >= g_trailR * risk)
+         if(g_trailOn && fav >= g_trailR * risk)
            {
             double trail = NormalizePrice(InpSymbol, bid - g_trailLock * risk);
             if(SlIsImprovement(type, trail, sl) && bid - trail >= need)
@@ -313,7 +319,7 @@ void LocalManage()
          if(fav >= g_beR * risk && SlIsImprovement(type, be, sl) && be - ask >= need)
             SafeModify(ticket, be, tp, "breakeven");
          sl = PositionGetDouble(POSITION_SL);
-         if(fav >= g_trailR * risk)
+         if(g_trailOn && fav >= g_trailR * risk)
            {
             double trail = NormalizePrice(InpSymbol, ask + g_trailLock * risk);
             if(SlIsImprovement(type, trail, sl) && trail - ask >= need)
@@ -459,9 +465,10 @@ void WriteStatusRaw(const string extra)
       break;
      }
    string python_ok = PythonFresh() ? "true" : "false";
+   string trail_ok = g_trailOn ? "true" : "false";
    string json = StringFormat(
-      "{%s\"connected\":true,\"python_fresh\":%s,\"symbol\":\"%s\",\"bid\":%.5f,\"ask\":%.5f,\"spread\":%d,\"positions\":%d,\"ticket\":%I64u,\"sl\":%.5f,\"tp\":%.5f,\"profit\":%.2f,\"last_command_id\":\"%s\",\"retcode\":%d,\"error\":\"%s\",\"time\":\"%s\"}",
-      extra, python_ok, InpSymbol, bid, ask, (int)spread, npos, posTicket, posSl, posTp, posPnl,
+      "{%s\"connected\":true,\"python_fresh\":%s,\"trail_on\":%s,\"symbol\":\"%s\",\"bid\":%.5f,\"ask\":%.5f,\"spread\":%d,\"positions\":%d,\"ticket\":%I64u,\"sl\":%.5f,\"tp\":%.5f,\"profit\":%.2f,\"last_command_id\":\"%s\",\"retcode\":%d,\"error\":\"%s\",\"time\":\"%s\"}",
+      extra, python_ok, trail_ok, InpSymbol, bid, ask, (int)spread, npos, posTicket, posSl, posTp, posPnl,
       g_lastId, g_lastRetcode, g_lastError, TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS));
    AtomicWrite(InpFolder + "\\status.json", json);
   }
@@ -510,6 +517,24 @@ double JsonNumber(const string raw, const string key)
    StringTrimLeft(chunk);
    StringTrimRight(chunk);
    return StringToDouble(chunk);
+  }
+
+bool HasJsonKey(const string raw, const string key)
+  {
+   return (StringFind(raw, "\"" + key + "\"") >= 0);
+  }
+
+bool JsonFlag(const string raw, const string key, const bool fallback)
+  {
+   if(!HasJsonKey(raw, key))
+      return fallback;
+   string s = JsonString(raw, key);
+   if(s != "")
+     {
+      StringToLower(s);
+      return (s == "true" || s == "1" || s == "yes" || s == "on");
+     }
+   return (JsonNumber(raw, key) > 0.0);
   }
 
 //+------------------------------------------------------------------+

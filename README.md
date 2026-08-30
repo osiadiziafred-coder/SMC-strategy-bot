@@ -6,13 +6,15 @@ Default symbol: **XAUUSDm** (configurable: XAUUSD, GOLD, XAUUSD.a, …).
 
 ## Architecture
 
+Two connected programs, not one EA:
+
 ```
-Market data → H1 bias → M30 confirm → M15 sweep/OB/FVG/structure
-→ premium/discount + displacement + session/news
-→ feature vector → Gradient Boosting probability
-→ SMC + ML + risk + spread checks
-→ one position → MQL5 execute → BE / structure trail → journal
+Python ML/SMC brain → command.json → MQL5 EA → MT5 broker → status.json → Python
 ```
+
+Python owns: H1/M30/M15, BOS/MSS/CHoCH, OB, FVG, liquidity sweep/zones, ML score, lot size, backtest, training.
+
+MQL5 owns: validate, execute, one-position, breakeven, **optional** trail (`trail_enabled` / `g_trailOn`), heartbeat timeout, status.json. It never invents BUY/SELL.
 
 - Python lives in `.py` files only.
 - MQL5 lives in `.mq5` files only.
@@ -46,7 +48,7 @@ H1 bias + M30 confirm + liquidity sweep + OB or FVG + M15 BOS/CHoCH/MSS + ML pro
 - Default RR **1:2**. SL comes from structure/OB/FVG plus an ATR buffer.
 - Max **1** open position.
 - Daily loss / trade / consecutive-loss stops.
-- Breakeven at **+1R**. Trail from **+1.5R**. SL never loosens.
+- Breakeven at **+1R**. Trail from **+1.5R** only when `trail_enabled` is true (`g_trailOn` in the EA). SL never loosens.
 - News: `trade_through_news: true` by default. Set it false to honor the calendar window.
 
 Python package layout (spec names → modules):
