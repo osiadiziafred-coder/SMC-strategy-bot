@@ -1,0 +1,4 @@
+{
+  "name": "SMC Strategy Bot",
+  "install": "bash scripts/install.sh"
+}
