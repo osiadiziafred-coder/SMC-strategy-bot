@@ -42,12 +42,33 @@ H1 bias + M30 confirm + liquidity sweep + OB or FVG + M15 BOS/CHoCH/MSS + ML pro
 
 ## Risk
 
-- Primary lot size: **percent of equity** from SL distance and tick value.
-- Default RR **1:2**. TP can clip before obvious opposing liquidity if 1.2R still remains.
+- Default lot size: **every $100 balance = 0.01 lot** (`sizing_mode: balance_step`). Percent-of-equity sizing remains available.
+- Default RR **1:2**. SL comes from structure/OB/FVG plus an ATR buffer.
 - Max **1** open position.
 - Daily loss / trade / consecutive-loss stops.
-- Breakeven at **+1R**. Structure trail from **+1.5R**.
-- News is configurable (`allow`, `avoid_high`, `window`, `after_only`). Default is `allow`.
+- Breakeven at **+1R**. Trail from **+1.5R**. SL never loosens.
+- News: `trade_through_news: true` by default. Set it false to honor the calendar window.
+
+Python package layout (spec names → modules):
+
+| Spec name | Location |
+|---|---|
+| `main.py` | `main.py` |
+| `mt5_connector.py` | `smc_robot/broker/mt5.py` |
+| `smc_engine.py` | `smc_robot/engine.py` |
+| `market_structure.py` | `smc_robot/smc/structure.py` |
+| `liquidity.py` | `smc_robot/smc/liquidity.py` |
+| `order_blocks.py` | `smc_robot/smc/order_blocks.py` |
+| `fvg.py` | `smc_robot/smc/fvg.py` |
+| `feature_engineering.py` | `smc_robot/scoring/__init__.py` |
+| `ml_model.py` | `smc_robot/scoring/train.py` |
+| `signal_engine.py` | `smc_robot/engine.py` |
+| `risk_manager.py` | `smc_robot/risk/` |
+| `trade_manager.py` | `smc_robot/manager.py` |
+| `backtest.py` | `smc_robot/backtest.py` |
+| `config.py` | `smc_robot/config.py` |
+| `logger.py` | `smc_robot/logger.py` |
+| `PythonML_SMC_Bridge.mq5` | repo root (also `pyhonAI_SMC.mq5`) |
 
 ## Run
 
@@ -77,12 +98,12 @@ Install and connect the two parts using [docs/SETUP.md](docs/SETUP.md).
 
 ## MQL5 bridge
 
-1. Compile `pyhonAI_SMC.mq5` (or `PythonAI_SMC.mq5`) in MetaEditor — this EA does **not** invent trades.
+1. Compile `PythonML_SMC_Bridge.mq5` (same file as `pyhonAI_SMC.mq5` / `PythonAI_SMC.mq5`) in MetaEditor — this EA does **not** invent trades.
 2. Attach it to XAUUSDm.
 3. Python writes `Common/Files/smc_bridge/command.json`.
-4. The EA returns `status.json` (ticket, fill, errors, positions).
+4. The EA returns `status.json` (ticket, fill, errors, positions, python_fresh).
 
-If Python disconnects, the EA does not open new trades. It can still move SL to breakeven on an existing position.
+If the Python heartbeat is older than 45 seconds, the EA rejects new BUY/SELL commands. Existing positions keep local breakeven and trailing protection.
 
 ## ML
 

@@ -57,6 +57,12 @@ FEATURE_NAMES = [
     "dist_fvg",
     "candle_body_atr",
     "momentum",
+    "fvg_size",
+    "volatility",
+    "hour_utc",
+    "dist_recent_high",
+    "dist_recent_low",
+    "reward_ratio",
 ]
 
 
@@ -110,6 +116,13 @@ def extract_features(
     body_atr = (last_c.body / atr_v) if atr_v > 0 else 0.0
     look = m15.candles[-6] if len(m15.candles) >= 6 else m15.candles[0]
     momentum = ((price - look.close) / atr_v) if atr_v > 0 else 0.0
+    recent = m15.candles[-20:] if len(m15.candles) >= 20 else m15.candles
+    recent_high = max(c.high for c in recent)
+    recent_low = min(c.low for c in recent)
+    fvg_size = 0.0
+    if fvg is not None and atr_v > 0:
+        fvg_size = (fvg.high - fvg.low) / atr_v
+    hour = last_c.time.hour + last_c.time.minute / 60.0
     return {
         "h1_trend": h1_value,
         "m30_trend": _trend_value(m30.trend, direction),
@@ -141,6 +154,12 @@ def extract_features(
         "dist_fvg": _atr_dist(price, fvg_mid, atr_v),
         "candle_body_atr": body_atr,
         "momentum": momentum,
+        "fvg_size": fvg_size,
+        "volatility": conditions.atr_ratio,
+        "hour_utc": hour / 23.0,
+        "dist_recent_high": _atr_dist(price, recent_high, atr_v),
+        "dist_recent_low": _atr_dist(price, recent_low, atr_v),
+        "reward_ratio": settings.risk.reward_ratio,
     }
 
 

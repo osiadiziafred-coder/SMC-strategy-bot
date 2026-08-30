@@ -1,10 +1,11 @@
-"""One open trade, breakeven at +1R, optional structure-based trailing."""
+"""One open trade, breakeven at +1R, price/structure trail from +1.5R. Never loosen SL."""
 
 from __future__ import annotations
 
 import logging
 
 from smc_robot.broker.base import Broker
+from smc_robot.bridge import sl_is_improvement
 from smc_robot.config import Settings
 from smc_robot.models import Direction, Position
 from smc_robot.risk.protection import Quote
@@ -39,6 +40,16 @@ class PositionManager:
             return (quote.bid - position.entry) / position.initial_risk
         return (position.entry - quote.ask) / position.initial_risk
 
+    def _apply_sl(self, position: Position, new_sl: float, why: str) -> Position:
+        if not sl_is_improvement(position.direction.value, new_sl, position.sl):
+            return position
+        logger.info("%s %s SL %.3f -> %.3f", why, position.ticket, position.sl, new_sl)
+        moved = self.broker.modify_sl(position, new_sl)
+        extra = {"breakeven_applied": True}
+        if why.startswith("trail"):
+            extra["trailing_applied"] = True
+        return moved.model_copy(update=extra)
+
     def _maybe_breakeven(self, position: Position, quote: Quote) -> Position:
         if position.breakeven_applied:
             return position
@@ -52,31 +63,27 @@ class PositionManager:
         buffer = self.settings.risk.breakeven_buffer_points * point
         if position.direction == Direction.BUY:
             new_sl = position.entry + buffer
-            if new_sl > position.sl:
-                logger.info("Moving BUY %s SL to breakeven %.3f", position.ticket, new_sl)
-                moved = self.broker.modify_sl(position, new_sl)
-                return moved.model_copy(update={"breakeven_applied": True})
         else:
             new_sl = position.entry - buffer
-            if new_sl < position.sl or position.sl == 0:
-                logger.info("Moving SELL %s SL to breakeven %.3f", position.ticket, new_sl)
-                moved = self.broker.modify_sl(position, new_sl)
-                return moved.model_copy(update={"breakeven_applied": True})
-        return position
+        return self._apply_sl(position, new_sl, "breakeven")
 
     def _maybe_trail(self, position: Position, quote: Quote, structure_sl: float | None) -> Position:
-        if structure_sl is None:
-            return position
         if self._r_multiple(position, quote) < self.settings.risk.trail_start_r:
             return position
+        candidates: list[float] = []
+        if structure_sl is not None:
+            candidates.append(structure_sl)
+        lock = self.settings.risk.trail_lock_r * position.initial_risk
         if position.direction == Direction.BUY:
-            if structure_sl > position.sl and structure_sl < quote.bid:
-                logger.info("Trail BUY %s SL to structure %.3f", position.ticket, structure_sl)
-                moved = self.broker.modify_sl(position, structure_sl)
-                return moved.model_copy(update={"trailing_applied": True, "breakeven_applied": True})
-        elif structure_sl < position.sl or position.sl == 0:
-            if structure_sl > quote.ask:
-                logger.info("Trail SELL %s SL to structure %.3f", position.ticket, structure_sl)
-                moved = self.broker.modify_sl(position, structure_sl)
-                return moved.model_copy(update={"trailing_applied": True, "breakeven_applied": True})
-        return position
+            candidates.append(quote.bid - lock)
+        else:
+            candidates.append(quote.ask + lock)
+        if position.direction == Direction.BUY:
+            new_sl = max(candidates)
+            if new_sl >= quote.bid:
+                return position
+        else:
+            new_sl = min(candidates)
+            if new_sl <= quote.ask:
+                return position
+        return self._apply_sl(position, new_sl, "trail")

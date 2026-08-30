@@ -66,7 +66,7 @@ class ScoringConfig(BaseModel):
 
 
 class RiskConfig(BaseModel):
-    sizing_mode: str = "percent"
+    sizing_mode: str = "balance_step"
     risk_percent: float = 0.50
     reward_ratio: float = 2.0
     balance_per_lot_step: float = 100.0
@@ -75,6 +75,7 @@ class RiskConfig(BaseModel):
     breakeven_r: float = 1.0
     breakeven_buffer_points: float = 0.0
     trail_start_r: float = 1.5
+    trail_lock_r: float = 0.50
     trail_enabled: bool = True
     max_positions: int = 1
     max_lot: float = 5.0
@@ -109,6 +110,7 @@ class SessionConfig(BaseModel):
 
 
 class NewsConfig(BaseModel):
+    trade_through_news: bool = True
     mode: str = "allow"
     calendar_path: str = "config/news_calendar.csv"
     minutes_before: int = 30
@@ -138,6 +140,14 @@ class BridgeConfig(BaseModel):
     command_file: str = "command.json"
     status_file: str = "status.json"
     heartbeat_seconds: int = 10
+    python_timeout_seconds: int = 45
+    result_timeout_seconds: float = 15.0
+
+
+class BacktestCostConfig(BaseModel):
+    spread_points: float = 20.0
+    commission_per_lot: float = 0.0
+    slippage_points: float = 5.0
 
 
 class RobotConfig(BaseModel):
@@ -162,6 +172,7 @@ class Settings(BaseModel):
     market_conditions: MarketConditionsConfig = Field(default_factory=MarketConditionsConfig)
     bridge: BridgeConfig = Field(default_factory=BridgeConfig)
     robot: RobotConfig = Field(default_factory=RobotConfig)
+    backtest: BacktestCostConfig = Field(default_factory=BacktestCostConfig)
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

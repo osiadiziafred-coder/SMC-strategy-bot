@@ -29,7 +29,7 @@ class FileBridge:
         self._write_command(
             {
                 "action": "HEARTBEAT",
-                "id": f"hb-{int(time.time())}",
+                "id": f"hb-{int(time.time() * 1000)}",
                 "symbol": self.settings.symbol,
                 "time": datetime.now(timezone.utc).isoformat(),
             }
@@ -40,14 +40,18 @@ class FileBridge:
             "action": signal.direction.value,
             "id": signal.signal_id,
             "symbol": self.settings.symbol,
+            "direction": signal.direction.value,
             "entry": signal.plan.entry,
             "lots": signal.plan.lots,
+            "lot": signal.plan.lots,
             "sl": signal.plan.sl,
             "tp": signal.plan.tp,
             "magic": self.settings.risk.magic,
             "deviation": int(self.settings.protection.max_slippage_points),
             "ml_probability": signal.score.ml_probability,
+            "smc_score": signal.score.total,
             "grade": signal.grade.value,
+            "reason": signal.reason,
             "comment": (self.settings.risk.comment + "-" + signal.signal_id)[:31],
             "breakeven_r": self.settings.risk.breakeven_r,
             "trail_start_r": self.settings.risk.trail_start_r,
@@ -62,11 +66,23 @@ class FileBridge:
         self._write_command(
             {
                 "action": "MODIFY",
-                "id": f"{signal_id}-mod-{int(time.time())}",
+                "id": f"{signal_id}-mod-{int(time.time() * 1000)}",
                 "symbol": self.settings.symbol,
                 "ticket": ticket,
                 "sl": sl,
                 "tp": tp,
+                "magic": self.settings.risk.magic,
+                "time": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+    def send_close(self, ticket: int, signal_id: str) -> None:
+        self._write_command(
+            {
+                "action": "CLOSE",
+                "id": f"{signal_id}-close-{int(time.time() * 1000)}",
+                "symbol": self.settings.symbol,
+                "ticket": ticket,
                 "magic": self.settings.risk.magic,
                 "time": datetime.now(timezone.utc).isoformat(),
             }
@@ -86,6 +102,23 @@ class FileBridge:
         if result.get("id") == signal_id:
             return result
         return None
+
+    def wait_for_result(
+        self,
+        command_id: str,
+        timeout: float | None = None,
+        poll: float = 0.1,
+    ) -> dict[str, Any]:
+        limit = (
+            self.settings.bridge.result_timeout_seconds if timeout is None else timeout
+        )
+        deadline = time.time() + max(0.0, limit)
+        while time.time() <= deadline:
+            result = self.last_result_for(command_id)
+            if result is not None:
+                return result
+            time.sleep(poll)
+        return {}
 
     def connected(self) -> bool:
         status = self.read_status()
@@ -114,12 +147,24 @@ def command_from_signal(signal: Signal, settings: Settings) -> dict[str, Any]:
         "action": signal.direction.value,
         "id": signal.signal_id,
         "symbol": settings.symbol,
+        "direction": signal.direction.value,
         "lots": signal.plan.lots,
         "sl": signal.plan.sl,
         "tp": signal.plan.tp,
         "entry": signal.plan.entry,
-        "direction": signal.direction.value,
+        "smc_score": signal.score.total,
+        "reason": signal.reason,
     }
+
+
+def sl_is_improvement(direction: str, new_sl: float, current_sl: float) -> bool:
+    if new_sl <= 0:
+        return False
+    if current_sl <= 0:
+        return True
+    if direction == "BUY":
+        return new_sl > current_sl + 1e-8
+    return new_sl < current_sl - 1e-8
 
 
 class Mql5PaperExecutor:
@@ -133,6 +178,13 @@ class Mql5PaperExecutor:
         self.last_id = ""
         self.positions: list[dict[str, Any]] = []
         self._ticket = 1000
+        self._last_python = 0.0
+        self._last_result: dict[str, Any] = {}
+
+    def python_fresh(self) -> bool:
+        if self._last_python <= 0:
+            return False
+        return (time.time() - self._last_python) <= self.settings.bridge.python_timeout_seconds
 
     def process_once(self) -> dict[str, Any]:
         if not self.bridge.command_path.exists():
@@ -146,13 +198,18 @@ class Mql5PaperExecutor:
         if not cmd_id or cmd_id == self.last_id:
             return self._status("duplicate", "duplicate_or_empty")
         if action in ("HEARTBEAT", "NONE"):
+            self._last_python = time.time()
             self.last_id = cmd_id
             return self._write_status(True, 0, 0.0, 0.0, 0.0, "heartbeat", cmd_id)
+        if action in ("BUY", "SELL") and not self.python_fresh():
+            self.last_id = cmd_id
+            return self._write_status(False, 0, 0.0, 0.0, 0.0, "python_disconnected", cmd_id)
+        self._last_python = time.time()
         if action in ("BUY", "SELL"):
             if self.positions:
                 self.last_id = cmd_id
                 return self._write_status(False, 0, 0.0, 0.0, 0.0, "max_positions", cmd_id)
-            lots = float(cmd.get("lots") or 0)
+            lots = float(cmd.get("lots") or cmd.get("lot") or 0)
             sl = float(cmd.get("sl") or 0)
             tp = float(cmd.get("tp") or 0)
             if lots <= 0 or sl <= 0 or tp <= 0:
@@ -179,29 +236,34 @@ class Mql5PaperExecutor:
             tp = float(cmd.get("tp") or 0)
             for pos in self.positions:
                 if pos["ticket"] == ticket:
+                    if not sl_is_improvement(pos["direction"], sl, float(pos["sl"])):
+                        self.last_id = cmd_id
+                        return self._write_status(
+                            False, ticket, pos["entry"], sl, tp, "sl_would_loosen", cmd_id
+                        )
                     pos["sl"] = sl
-                    pos["tp"] = tp
+                    if tp > 0:
+                        pos["tp"] = tp
                     self.last_id = cmd_id
-                    return self._write_status(True, ticket, pos["entry"], sl, tp, "modified", cmd_id)
+                    return self._write_status(True, ticket, pos["entry"], sl, pos["tp"], "modified", cmd_id)
             self.last_id = cmd_id
             return self._write_status(False, ticket, 0.0, sl, tp, "modify_failed", cmd_id)
+        if action == "CLOSE":
+            ticket = int(cmd.get("ticket") or 0)
+            before = len(self.positions)
+            self.positions = [p for p in self.positions if p["ticket"] != ticket]
+            self.last_id = cmd_id
+            if len(self.positions) == before:
+                return self._write_status(False, ticket, 0.0, 0.0, 0.0, "close_failed", cmd_id)
+            return self._write_status(True, ticket, 0.0, 0.0, 0.0, "closed", cmd_id)
         self.last_id = cmd_id
         return self._write_status(False, 0, 0.0, 0.0, 0.0, "unknown_action", cmd_id)
 
     def _write_status(
         self, ok: bool, ticket: int, price: float, sl: float, tp: float, error: str, cmd_id: str
     ) -> dict[str, Any]:
-        payload = {
-            "connected": True,
-            "python_fresh": True,
-            "symbol": self.settings.symbol,
-            "bid": self.bid,
-            "ask": self.ask,
-            "spread": 25,
-            "positions": len(self.positions),
-            "last_command_id": cmd_id or self.last_id,
-            "time": datetime.now(timezone.utc).isoformat(),
-            "last_result": {
+        if cmd_id:
+            self._last_result = {
                 "id": cmd_id,
                 "ok": ok,
                 "ticket": ticket,
@@ -209,7 +271,24 @@ class Mql5PaperExecutor:
                 "sl": sl,
                 "tp": tp,
                 "error": error,
-            },
+            }
+        pos = self.positions[0] if self.positions else {}
+        payload = {
+            "connected": True,
+            "python_fresh": self.python_fresh(),
+            "symbol": self.settings.symbol,
+            "bid": self.bid,
+            "ask": self.ask,
+            "spread": 25,
+            "positions": len(self.positions),
+            "ticket": pos.get("ticket", ticket),
+            "sl": pos.get("sl", sl),
+            "tp": pos.get("tp", tp),
+            "last_command_id": cmd_id or self.last_id,
+            "retcode": 0 if ok else 1,
+            "error": error,
+            "time": datetime.now(timezone.utc).isoformat(),
+            "last_result": self._last_result,
         }
         tmp = self.bridge.status_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")

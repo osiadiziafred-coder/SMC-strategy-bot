@@ -71,9 +71,9 @@ def run_verification(tmp: Path | None = None) -> dict:
     except Exception as exc:
         checks.append(_check("1_python_runs", False, str(exc)))
 
-    mq5 = root / "pyhonAI_SMC.mq5"
-    ok, detail = _mql5_static(mq5)
-    checks.append(_check("2_mql5_static_compile_guard", ok, detail))
+    for name in ("pyhonAI_SMC.mq5", "PythonAI_SMC.mq5", "PythonML_SMC_Bridge.mq5"):
+        ok, detail = _mql5_static(root / name)
+        checks.append(_check(f"2_mql5_static_{name}", ok, detail))
 
     settings = Settings()
     settings.bridge.directory = str(work / "bridge")
@@ -93,10 +93,25 @@ def run_verification(tmp: Path | None = None) -> dict:
 
     bridge = FileBridge(settings)
     executor = Mql5PaperExecutor(settings, bid=1999.5, ask=2000.0)
+    stale = FileBridge(settings)
+    stale.send_signal(_signal(Direction.BUY, 2000.0, 1990.0, 2020.0, "sig-stale-1"))
+    stale_res = executor.process_once()["last_result"]
+    checks.append(
+        _check(
+            "18_heartbeat_stale_rejects_buy",
+            stale_res.get("error") == "python_disconnected",
+            json.dumps(stale_res),
+        )
+    )
+
+    bridge.heartbeat()
+    executor.process_once()
     buy = _signal(Direction.BUY, 2000.0, 1990.0, 2020.0, "sig-buy-1")
     bridge.send_signal(buy)
     result = executor.process_once()
     last = result.get("last_result") or {}
+    waited = bridge.wait_for_result("sig-buy-1", timeout=0.5)
+    checks.append(_check("19_wait_for_fill", waited.get("error") == "filled", json.dumps(waited)))
     checks.append(_check("3_python_writes_mt5_command", bridge.command_path.exists(), str(bridge.command_path)))
     checks.append(_check("4_mql5_receives_signal", last.get("id") == "sig-buy-1", json.dumps(last)))
     checks.append(_check("5_buy_execution", last.get("ok") is True and last.get("error") == "filled", json.dumps(last)))
@@ -107,6 +122,8 @@ def run_verification(tmp: Path | None = None) -> dict:
     sell_bridge_settings.bridge.directory = str(work / "bridge_sell")
     sell_bridge = FileBridge(sell_bridge_settings)
     sell_exec = Mql5PaperExecutor(sell_bridge_settings, bid=2000.0, ask=2000.4)
+    sell_bridge.heartbeat()
+    sell_exec.process_once()
     sell = _signal(Direction.SELL, 2000.0, 2010.0, 1980.0, "sig-sell-1")
     sell_bridge.send_signal(sell)
     sell_res = sell_exec.process_once()["last_result"]
@@ -123,6 +140,15 @@ def run_verification(tmp: Path | None = None) -> dict:
     manager.manage("XAUUSDm", paper.quote("XAUUSDm"), structure_sl=pos.entry + 2.0)
     trail_ok = paper.positions[0].sl >= pos.entry + 1.9
     checks.append(_check("10_structure_trail", trail_ok, str(paper.positions[0].sl)))
+    loosened = paper.positions[0].sl
+    manager.manage("XAUUSDm", paper.quote("XAUUSDm"), structure_sl=pos.entry - 5.0)
+    checks.append(
+        _check(
+            "20_trail_never_loosens",
+            paper.positions[0].sl >= loosened,
+            str(paper.positions[0].sl),
+        )
+    )
 
     h1 = bullish_structure_candles(n=96, minutes=60)
     m30 = bullish_structure_candles(n=96, minutes=30)
@@ -150,6 +176,8 @@ def run_verification(tmp: Path | None = None) -> dict:
     checks.append(_check("12_daily_risk_stop", allowed is False and reason == "max_daily_loss", reason))
 
     dup = FileBridge(settings)
+    dup.heartbeat()
+    executor.process_once()
     dup.send_signal(buy)
     again = executor.process_once()
     checks.append(_check("13_duplicate_blocked", again["last_result"].get("error") in {"duplicate", "duplicate_or_empty", "max_positions"}, json.dumps(again["last_result"])))

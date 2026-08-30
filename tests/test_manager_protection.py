@@ -34,6 +34,28 @@ def test_breakeven_at_plus_one_r():
     assert broker.positions[0].tp == 2020.0
 
 
+def test_trail_never_loosens_stop():
+    broker = PaperBroker(balance=1000.0, bid=2000.0, ask=2000.2)
+    settings = Settings()
+    manager = PositionManager(broker, settings)
+    position = broker.market_order(
+        symbol="XAUUSDm",
+        direction=Direction.BUY,
+        lots=0.10,
+        sl=1990.0,
+        tp=2020.0,
+        deviation_points=40,
+        magic=settings.risk.magic,
+        comment="test",
+    )
+    broker.set_quote(position.entry + 1.6 * position.initial_risk, position.entry + 1.6 * position.initial_risk + 0.2)
+    manager.manage("XAUUSDm", broker.quote("XAUUSDm"), structure_sl=position.entry + 4.0)
+    locked = broker.positions[0].sl
+    assert locked > position.entry
+    manager.manage("XAUUSDm", broker.quote("XAUUSDm"), structure_sl=position.entry - 8.0)
+    assert broker.positions[0].sl >= locked
+
+
 def test_only_one_open_position_allowed():
     broker = PaperBroker()
     settings = Settings()

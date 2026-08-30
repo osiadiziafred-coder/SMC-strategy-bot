@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,10 +12,40 @@ class DecisionJournal:
         self.path.mkdir(parents=True, exist_ok=True)
         self.file = self.path / "decisions.jsonl"
 
-    def write(self, symbol: str, decision: Decision, quote_spread: float = 0.0) -> None:
+    def write(self, symbol: str, decision: Decision, quote_spread: float = 0.0) -> DecisionRecord:
+        record = self._record(symbol, decision, quote_spread)
+        self._append(record)
+        return record
+
+    def write_outcome(
+        self,
+        symbol: str,
+        decision: Decision,
+        *,
+        result: str,
+        quote_spread: float = 0.0,
+        rejection_reason: str | None = None,
+        profit_loss: float | None = None,
+        r_multiple: float | None = None,
+        mfe: float | None = None,
+        mae: float | None = None,
+        fill_price: float | None = None,
+    ) -> DecisionRecord:
+        record = self._record(symbol, decision, quote_spread)
+        record.result = result
+        record.rejection_reason = rejection_reason
+        record.profit_loss = profit_loss
+        record.r_multiple = r_multiple
+        record.mae = mae
+        record.mfe = mfe
+        record.fill_price = fill_price
+        self._append(record)
+        return record
+
+    def _record(self, symbol: str, decision: Decision, quote_spread: float) -> DecisionRecord:
         signal = decision.signal
         score = decision.score
-        record = DecisionRecord(
+        return DecisionRecord(
             time=datetime.now(timezone.utc),
             symbol=symbol,
             action=decision.action,
@@ -44,6 +73,9 @@ class DecisionJournal:
             tp=signal.plan.tp if signal else None,
             lots=signal.plan.lots if signal else None,
             signal_id=signal.signal_id if signal else None,
+            rejection_reason=None if decision.signal else decision.reason,
         )
+
+    def _append(self, record: DecisionRecord) -> None:
         with self.file.open("a", encoding="utf-8") as handle:
             handle.write(record.model_dump_json() + "\n")

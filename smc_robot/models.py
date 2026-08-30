@@ -277,3 +277,9 @@ class DecisionRecord(BaseModel):
     lots: Optional[float] = None
     signal_id: Optional[str] = None
     result: Optional[str] = None
+    rejection_reason: Optional[str] = None
+    profit_loss: Optional[float] = None
+    r_multiple: Optional[float] = None
+    mfe: Optional[float] = None
+    mae: Optional[float] = None
+    fill_price: Optional[float] = None

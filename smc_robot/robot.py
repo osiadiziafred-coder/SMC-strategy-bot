@@ -9,6 +9,7 @@ from smc_robot.bridge import FileBridge
 from smc_robot.config import Settings
 from smc_robot.engine import SmcEngine
 from smc_robot.journal import DecisionJournal
+from smc_robot.logger import configure_logging
 from smc_robot.manager import PositionManager
 from smc_robot.models import Direction, SwingKind
 from smc_robot.risk.daily import DailyGuard
@@ -156,8 +157,35 @@ class SmcRobot:
             return "dry_run_signal"
 
         if self.use_bridge and self.bridge is not None:
-            self.bridge.send_signal(signal)
-            return "bridge_command_sent"
+            cmd_id = self.bridge.send_signal(signal)
+            result = self.bridge.wait_for_result(
+                cmd_id, timeout=self.settings.bridge.result_timeout_seconds
+            )
+            if not result:
+                self.journal.write_outcome(
+                    symbol, decision, result="timeout", rejection_reason="bridge_no_result"
+                )
+                logger.warning("Bridge did not confirm command %s", cmd_id)
+                return "bridge_no_result"
+            if not result.get("ok"):
+                err = str(result.get("error") or "rejected")
+                self.journal.write_outcome(
+                    symbol, decision, result="rejected", rejection_reason=err
+                )
+                logger.warning("Bridge rejected %s: %s", cmd_id, err)
+                return f"bridge_rejected:{err}"
+            ticket = int(result.get("ticket") or 0)
+            if ticket:
+                self._known_tickets.add(ticket)
+            fill = result.get("price")
+            self.journal.write_outcome(
+                symbol,
+                decision,
+                result="filled",
+                fill_price=float(fill) if fill is not None else None,
+            )
+            logger.info("Bridge filled ticket=%s price=%s", ticket, fill)
+            return "bridge_command_filled"
 
         position = self.broker.market_order(
             symbol=symbol,
@@ -202,15 +230,4 @@ def _structure_trail_price(candles, settings: Settings) -> float | None:
     return None
 
 
-def configure_logging(log_dir: str) -> None:
-    from pathlib import Path
-
-    Path(log_dir).mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        handlers=[
-            logging.FileHandler(Path(log_dir) / "smc_robot.log", encoding="utf-8"),
-            logging.StreamHandler(),
-        ],
-    )
+__all__ = ["SmcRobot", "configure_logging"]

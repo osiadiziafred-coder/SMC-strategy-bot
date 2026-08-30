@@ -68,14 +68,11 @@ class BacktestReport:
 
     @property
     def max_consecutive_losses(self) -> int:
-        worst = run = 0
-        for trade in self.trades:
-            if not trade.win:
-                run += 1
-                worst = max(worst, run)
-            else:
-                run = 0
-        return worst
+        return _max_run(self.trades, winning=False)
+
+    @property
+    def max_consecutive_wins(self) -> int:
+        return _max_run(self.trades, winning=True)
 
     def max_drawdown_r(self) -> float:
         equity = 0.0
@@ -92,22 +89,29 @@ class BacktestReport:
         shorts = [t for t in self.trades if t.direction == Direction.SELL]
         wins = [t.r_multiple for t in self.trades if t.r_multiple > 0]
         losses = [t.r_multiple for t in self.trades if t.r_multiple < 0]
+        net_profit_r = sum(t.r_multiple for t in self.trades)
         sessions: dict[str, list[TradeResult]] = {}
         for trade in self.trades:
             key = trade.session or "UNKNOWN"
             sessions.setdefault(key, []).append(trade)
         return {
             "total_trades": self.total,
+            "winning_trades": self.wins,
+            "losing_trades": self.losses,
             "wins": self.wins,
             "losses": self.losses,
             "win_rate": self.win_rate,
             "profit_factor": self.profit_factor,
-            "net_profit_r": sum(t.r_multiple for t in self.trades),
+            "net_profit_r": net_profit_r,
+            "net_profit": net_profit_r,
             "average_r": self.average_r,
             "expectancy": self.expectancy,
             "average_win": (sum(wins) / len(wins)) if wins else 0.0,
             "average_loss": (sum(losses) / len(losses)) if losses else 0.0,
+            "largest_win": max(wins) if wins else 0.0,
+            "largest_loss": min(losses) if losses else 0.0,
             "max_drawdown_r": self.max_drawdown_r(),
+            "max_consecutive_wins": self.max_consecutive_wins,
             "max_consecutive_losses": self.max_consecutive_losses,
             "long_trades": len(longs),
             "short_trades": len(shorts),
@@ -121,8 +125,19 @@ class BacktestReport:
                 }
                 for name, rows in sessions.items()
             },
-            "disclaimer": "Historical metrics do not guarantee future results.",
+            "disclaimer": "Historical metrics do not guarantee future results or a 90% win rate.",
         }
+
+
+def _max_run(trades: list[TradeResult], winning: bool) -> int:
+    worst = run = 0
+    for trade in trades:
+        if trade.win is winning:
+            run += 1
+            worst = max(worst, run)
+        else:
+            run = 0
+    return worst
 
 
 def _slice_upto(candles: list[Candle], stamp: datetime) -> list[Candle]:
@@ -148,32 +163,48 @@ def simulate_outcome(
     entry: float,
     sl: float,
     tp: float,
+    point: float = 0.01,
+    spread_points: float = 0.0,
+    slippage_points: float = 0.0,
+    commission_per_lot: float = 0.0,
+    lots: float = 0.01,
+    tick_value: float = 1.0,
+    tick_size: float = 0.01,
 ) -> tuple[bool, float, float, float]:
-    risk = abs(entry - sl)
+    fill_offset = (spread_points + slippage_points) * point
+    if direction == Direction.BUY:
+        fill = entry + fill_offset
+    else:
+        fill = entry - fill_offset
+    risk = abs(fill - sl)
     if risk <= 0:
         return False, 0.0, 0.0, 0.0
+    commission_r = 0.0
+    value_per_r = lots * (risk / tick_size) * tick_value if tick_size > 0 else 0.0
+    if commission_per_lot > 0 and value_per_r > 0:
+        commission_r = (commission_per_lot * lots) / value_per_r
     mfe = 0.0
     mae = 0.0
     for candle in future:
         if direction == Direction.BUY:
-            mfe = max(mfe, (candle.high - entry) / risk)
-            mae = min(mae, (candle.low - entry) / risk)
+            mfe = max(mfe, (candle.high - fill) / risk)
+            mae = min(mae, (candle.low - fill) / risk)
             if candle.low <= sl:
-                return False, -1.0, mfe, abs(mae)
+                return False, -1.0 - commission_r, mfe, abs(mae)
             if candle.high >= tp:
-                return True, (tp - entry) / risk, mfe, abs(mae)
+                return True, (tp - fill) / risk - commission_r, mfe, abs(mae)
         else:
-            mfe = max(mfe, (entry - candle.low) / risk)
-            mae = min(mae, (entry - candle.high) / risk)
+            mfe = max(mfe, (fill - candle.low) / risk)
+            mae = min(mae, (fill - candle.high) / risk)
             if candle.high >= sl:
-                return False, -1.0, mfe, abs(mae)
+                return False, -1.0 - commission_r, mfe, abs(mae)
             if candle.low <= tp:
-                return True, (entry - tp) / risk, mfe, abs(mae)
-    last = future[-1].close if future else entry
+                return True, (fill - tp) / risk - commission_r, mfe, abs(mae)
+    last = future[-1].close if future else fill
     if direction == Direction.BUY:
-        r_mult = (last - entry) / risk
+        r_mult = (last - fill) / risk - commission_r
     else:
-        r_mult = (entry - last) / risk
+        r_mult = (fill - last) / risk - commission_r
     return r_mult > 0, r_mult, mfe, abs(mae)
 
 
@@ -212,8 +243,20 @@ def run_backtest(
             continue
         last_signal = decision.signal.signal_id
         plan = decision.signal.plan
+        costs = settings.backtest
         win, r_mult, mfe, mae = simulate_outcome(
-            m15[i + 1 :], plan.direction, plan.entry, plan.sl, plan.tp
+            m15[i + 1 :],
+            plan.direction,
+            plan.entry,
+            plan.sl,
+            plan.tp,
+            point=spec.point,
+            spread_points=costs.spread_points,
+            slippage_points=costs.slippage_points,
+            commission_per_lot=costs.commission_per_lot,
+            lots=plan.lots,
+            tick_value=spec.tick_value,
+            tick_size=spec.tick_size,
         )
         report.trades.append(
             TradeResult(

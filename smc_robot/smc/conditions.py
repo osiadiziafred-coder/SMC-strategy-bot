@@ -1,7 +1,8 @@
 """Market-condition analysis used as a scoring input, not a news filter.
 
-The robot continues to trade through news. Conditions only flag whether
-the tape is too choppy or the spread is too hostile for a clean SMC setup.
+News blocking is controlled separately by ``news.trade_through_news``.
+These conditions only flag whether the tape is too choppy or the spread
+is too hostile for a clean SMC setup.
 
 Rules
 -----

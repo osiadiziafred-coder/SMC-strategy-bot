@@ -40,9 +40,11 @@ def news_block_reason(
     cfg: NewsConfig,
     events: list[dict] | None = None,
 ) -> str:
+    if cfg.trade_through_news:
+        return ""
     mode = NewsMode(cfg.mode)
     if mode == NewsMode.ALLOW:
-        return ""
+        mode = NewsMode.AVOID_HIGH
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
     calendar = events if events is not None else load_calendar(cfg.calendar_path)

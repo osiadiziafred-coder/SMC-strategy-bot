@@ -35,7 +35,7 @@ MT5_PATH=C:\Program Files\MetaTrader 5\terminal64.exe
 ## 2. Install the MQL5 EA
 
 1. Open MetaEditor.
-2. Create / replace `MQL5\Experts\pyhonAI_SMC.mq5` with the repo file of the same name.
+2. Copy `PythonML_SMC_Bridge.mq5` (or `pyhonAI_SMC.mq5` / `PythonAI_SMC.mq5`) into `MQL5\Experts`.
 3. Press **F7**. You must get 0 errors.
 4. In MT5: attach the EA to an **XAUUSDm** chart.
 5. Allow DLL/file imports if asked. Enable **Algo Trading**.
