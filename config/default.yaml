@@ -1,0 +1,133 @@
+symbol: XAUUSDm
+
+timeframes:
+  bias: H1
+  confirm: M30
+  entry: M15
+
+bars:
+  h1: 300
+  m30: 400
+  m15: 500
+
+smc:
+  swing_n_internal: 2
+  swing_n_external: 5
+  equal_level_atr_mult: 0.15
+  fvg_min_atr_mult: 0.10
+  ob_lookback_bars: 12
+  ob_impulse_atr_mult: 1.20
+  ob_max_age_bars: 24
+  structure_event_max_age_m30: 8
+  structure_event_max_age_m15: 10
+  sweep_lookback_bars: 6
+  atr_period: 14
+  displacement_body_atr: 1.10
+  discount_max: 0.50
+  premium_min: 0.50
+  require_premium_discount: false
+
+scoring:
+  min_score: 70.0
+  use_ml: true
+  require_ml: true
+  ml_blend: 0.40
+  ml_min_probability: 0.70
+  min_ml_score: 0.70
+  model_path: models/smc_scorer.joblib
+  allowed_grades: ["A+", "A"]
+  weights:
+    h1_aligned: 20.0
+    m30_confirmation: 15.0
+    liquidity_sweep: 15.0
+    equal_liquidity_extra: 5.0
+    order_block: 15.0
+    fvg: 10.0
+    bos: 5.0
+    choch: 5.0
+    mss: 10.0
+    good_conditions: 10.0
+    poor_conditions: -20.0
+    h1_conflict: -25.0
+    premium_discount: 5.0
+    displacement: 5.0
+
+risk:
+  sizing_mode: balance_step
+  risk_percent: 0.50
+  reward_ratio: 2.0
+  balance_per_lot_step: 100.0
+  lot_step_per_balance: 0.01
+  sl_buffer_atr_mult: 0.10
+  breakeven_r: 1.0
+  breakeven_buffer_points: 0
+  trail_start_r: 1.5
+  trail_lock_r: 0.50
+  trail_enabled: true
+  max_positions: 1
+  max_lot: 5.0
+  min_lot: 0.01
+  magic: 20250824
+  comment: SMC-AI
+
+daily_risk:
+  max_daily_loss_percent: 3.0
+  max_daily_profit_percent: 0.0
+  max_trades_per_day: 8
+  max_consecutive_losses: 3
+
+cooldown:
+  bars_after_close: 2
+  bars_after_loss: 4
+  stronger_after_loss: true
+  loss_min_grade: "A+"
+  loss_ml_boost: 0.08
+
+sessions:
+  enabled: false
+  allowed: [ASIAN, LONDON, NEW_YORK, LONDON_NY_OVERLAP]
+  asian: [0, 8]
+  london: [7, 16]
+  new_york: [12, 21]
+
+news:
+  trade_through_news: true
+  mode: allow
+  calendar_path: config/news_calendar.csv
+  minutes_before: 30
+  minutes_after: 30
+  high_impact_only: true
+
+protection:
+  max_spread_points: 80
+  max_slippage_points: 40
+  max_quote_age_ms: 3000
+  spread_spike_mult: 2.5
+  spread_window: 20
+  min_stop_points: 50
+  require_margin: true
+
+market_conditions:
+  atr_slow_period: 50
+  low_atr_ratio: 0.60
+  high_atr_ratio: 2.20
+  choppy_efficiency: 0.18
+
+bridge:
+  directory: logs/smc_bridge
+  command_file: command.json
+  status_file: status.json
+  heartbeat_seconds: 10
+  python_timeout_seconds: 45
+  result_timeout_seconds: 15.0
+
+backtest:
+  spread_points: 20
+  commission_per_lot: 0.0
+  slippage_points: 5
+
+robot:
+  poll_seconds: 5
+  analyze_on_closed_bar_only: true
+  log_dir: logs
+  fail_closed: true
