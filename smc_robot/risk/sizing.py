@@ -16,6 +16,10 @@ class SymbolSpec:
     tick_size: float = 0.01
     tick_value: float = 1.0
     margin_initial: float = 0.0
+    trade_mode: str = "full"
+    spread: float = 0.0
+    bid: float = 0.0
+    ask: float = 0.0
 
 
 def lots_from_balance(

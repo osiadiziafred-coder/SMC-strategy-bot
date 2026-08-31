@@ -69,27 +69,56 @@ Train from time-ordered history (MT5 if connected, otherwise generated OHLCV —
 
 ```bash
 python train_model.py --out models/smc_scorer.joblib
+# also writes models/smc_model.pkl and python_smc_ml_robot/models/smc_model.pkl
+# or
+python python_smc_ml_robot/main.py train --out models/smc_scorer.joblib
 ```
 
-Python package layout (spec names → modules):
+Python package layout. The spec folder `python_smc_ml_robot/` is the public brain
+(re-exports the `smc_robot` implementation). MQL5 stays an execution bridge only.
+
+```
+python_smc_ml_robot/
+├── main.py
+├── mt5_connector.py
+├── market_data.py
+├── smc_engine.py
+├── liquidity.py
+├── order_blocks.py
+├── fvg.py
+├── market_structure.py
+├── feature_engine.py
+├── ml_model.py
+├── signal_engine.py
+├── risk_manager.py
+├── command_bridge.py
+├── status_reader.py
+├── config.py
+├── logger.py
+├── requirements.txt
+├── models/                 # smc_model.pkl after training
+├── data/historical_data/   # time-ordered setup labels
+└── logs/
+```
 
 | Spec name | Location |
 |---|---|
-| `main.py` | `main.py` |
-| `mt5_connector.py` | `smc_robot/broker/mt5.py` |
-| `smc_engine.py` | `smc_robot/engine.py` |
-| `market_structure.py` | `smc_robot/smc/structure.py` |
-| `liquidity.py` | `smc_robot/smc/liquidity.py` |
-| `order_blocks.py` | `smc_robot/smc/order_blocks.py` |
-| `fvg.py` | `smc_robot/smc/fvg.py` |
-| `feature_engineering.py` | `smc_robot/scoring/__init__.py` |
-| `ml_model.py` | `smc_robot/scoring/train.py` |
-| `signal_engine.py` | `smc_robot/engine.py` |
-| `risk_manager.py` | `smc_robot/risk/` |
-| `trade_manager.py` | `smc_robot/manager.py` |
-| `backtest.py` | `smc_robot/backtest.py` |
-| `config.py` | `smc_robot/config.py` |
-| `logger.py` | `smc_robot/logger.py` |
+| `main.py` | `python_smc_ml_robot/main.py` (also repo `main.py`) |
+| `mt5_connector.py` | `python_smc_ml_robot/mt5_connector.py` |
+| `market_data.py` | `python_smc_ml_robot/market_data.py` |
+| `smc_engine.py` | `python_smc_ml_robot/smc_engine.py` |
+| `market_structure.py` | `python_smc_ml_robot/market_structure.py` |
+| `liquidity.py` | `python_smc_ml_robot/liquidity.py` |
+| `order_blocks.py` | `python_smc_ml_robot/order_blocks.py` |
+| `fvg.py` | `python_smc_ml_robot/fvg.py` |
+| `feature_engine.py` | `python_smc_ml_robot/feature_engine.py` |
+| `ml_model.py` | `python_smc_ml_robot/ml_model.py` |
+| `signal_engine.py` | `python_smc_ml_robot/signal_engine.py` |
+| `risk_manager.py` | `python_smc_ml_robot/risk_manager.py` |
+| `command_bridge.py` | `python_smc_ml_robot/command_bridge.py` |
+| `status_reader.py` | `python_smc_ml_robot/status_reader.py` |
+| `config.py` | `python_smc_ml_robot/config.py` (`MIN_ML_SCORE = 0.70`) |
+| `logger.py` | `python_smc_ml_robot/logger.py` |
 | `PythonML_SMC_Bridge.mq5` | repo root (also `pyhonAI_SMC.mq5`) |
 
 ## Run

@@ -7,8 +7,12 @@ Quick start:
 1. `pip install -r requirements.txt`
 2. Compile `PythonML_SMC_Bridge.mq5` in MetaEditor (F7, 0 errors) and attach it to XAUUSDm.
 3. `python train_model.py --out models/smc_scorer.joblib`
+   (also writes `models/smc_model.pkl`)
 4. Point `bridge.directory` at `Common\Files\smc_bridge`.
 5. `python smc_ml_brain.py --mode bridge`
+   or `python python_smc_ml_robot/main.py --mode bridge`
+
+ML gate: `scoring.min_ml_score` / `MIN_ML_SCORE` default **0.70**. Allowed: 0.60, 0.65, 0.70, 0.75, 0.80, 0.85.
 
 Live/bridge mode will not send BUY/SELL unless the trained model file is loaded.
 

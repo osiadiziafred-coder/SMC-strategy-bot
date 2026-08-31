@@ -301,6 +301,51 @@ def grade_setup(features: dict[str, float], ml_probability: float | None, rule_t
     return SetupGrade.C
 
 
+def _model_candidates(path: str) -> list[Path]:
+    primary = Path(path)
+    extras = [primary.with_name("smc_model.pkl")]
+    if not primary.is_absolute():
+        extras.extend(
+            [
+                Path("models/smc_model.pkl"),
+                Path("python_smc_ml_robot/models/smc_model.pkl"),
+            ]
+        )
+    ordered: list[Path] = []
+    seen: set[str] = set()
+    for candidate in [primary, *extras]:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(candidate)
+    return ordered
+
+
+def _try_load_model_file(path: Path):
+    if not path.exists() or not path.is_file():
+        return None
+    try:
+        import joblib
+
+        payload = joblib.load(path)
+        if isinstance(payload, dict) and "model" in payload:
+            return payload, payload["model"]
+        return payload, payload
+    except Exception:
+        pass
+    try:
+        import pickle
+
+        with path.open("rb") as handle:
+            payload = pickle.load(handle)
+        if isinstance(payload, dict) and "model" in payload:
+            return payload, payload["model"]
+        return payload, payload
+    except Exception:
+        return None
+
+
 class SetupScorer:
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -310,20 +355,15 @@ class SetupScorer:
             self._model = self._load_model(settings.scoring.model_path)
 
     def _load_model(self, path: str):
-        model_path = Path(path)
-        if not model_path.exists():
-            return None
-        try:
-            import joblib
-
-            payload = joblib.load(model_path)
-            if isinstance(payload, dict) and "model" in payload:
-                raw_imp = payload.get("feature_importance") or {}
-                self.importances = {str(k): float(v) for k, v in raw_imp.items()}
-                return payload["model"]
-            return payload
-        except Exception:
-            return None
+        for candidate in _model_candidates(path):
+            loaded = _try_load_model_file(candidate)
+            if loaded is not None:
+                payload, model = loaded
+                if isinstance(payload, dict):
+                    raw_imp = payload.get("feature_importance") or {}
+                    self.importances = {str(k): float(v) for k, v in raw_imp.items()}
+                return model
+        return None
 
     def predict_success(self, features: dict[str, float]) -> float | None:
         if self._model is None:

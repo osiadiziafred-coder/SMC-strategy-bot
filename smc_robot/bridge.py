@@ -6,6 +6,7 @@ The EA does not invent its own entries.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from datetime import datetime, timezone
@@ -14,6 +15,25 @@ from typing import Any
 
 from smc_robot.config import Settings
 from smc_robot.models import Signal
+
+_COMMAND_SEQ = 0
+
+
+def new_command_id(kind: str = "trade", when: datetime | None = None, salt: str = "") -> str:
+    """Unique command IDs, e.g. trade_20260831_190700_001.
+
+    Trade IDs with a salt are stable for the same bar/setup so the robot
+    does not re-send the same order. Heartbeat/NONE IDs stay unique.
+    """
+    global _COMMAND_SEQ
+    stamp = (when or datetime.now(timezone.utc)).strftime("%Y%m%d_%H%M%S")
+    if salt:
+        digest = hashlib.md5(f"{kind}:{stamp}:{salt}".encode("utf-8")).hexdigest()
+        tail = int(digest, 16) % 1000
+    else:
+        _COMMAND_SEQ = (_COMMAND_SEQ + 1) % 1000
+        tail = _COMMAND_SEQ
+    return f"{kind}_{stamp}_{tail:03d}"
 
 
 class FileBridge:
@@ -26,7 +46,7 @@ class FileBridge:
         self._last_sent = ""
 
     def send_none(self, reason: str = "no_setup") -> str:
-        cmd_id = f"none-{int(time.time() * 1000)}"
+        cmd_id = new_command_id("none")
         self._write_command(
             {
                 "action": "NONE",
@@ -42,7 +62,7 @@ class FileBridge:
         self._write_command(
             {
                 "action": "HEARTBEAT",
-                "id": f"hb-{int(time.time() * 1000)}",
+                "id": new_command_id("heartbeat"),
                 "symbol": self.settings.symbol,
                 "time": datetime.now(timezone.utc).isoformat(),
             }
@@ -304,6 +324,7 @@ class Mql5PaperExecutor:
             "ticket": pos.get("ticket", ticket),
             "sl": pos.get("sl", sl),
             "tp": pos.get("tp", tp),
+            "profit": 0.0,
             "last_command_id": cmd_id or self.last_id,
             "retcode": 0 if ok else 1,
             "error": error,

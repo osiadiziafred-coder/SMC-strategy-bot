@@ -33,6 +33,7 @@ scoring:
   require_ml: true
   ml_blend: 0.40
   ml_min_probability: 0.70
+  min_ml_score: 0.70
   model_path: models/smc_scorer.joblib
   allowed_grades: ["A+", "A"]
   weights:

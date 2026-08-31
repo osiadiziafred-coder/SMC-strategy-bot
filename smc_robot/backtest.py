@@ -170,7 +170,7 @@ def simulate_outcome(
     lots: float = 0.01,
     tick_value: float = 1.0,
     tick_size: float = 0.01,
-) -> tuple[bool, float, float, float]:
+) -> tuple[bool, float, float, float, str]:
     fill_offset = (spread_points + slippage_points) * point
     if direction == Direction.BUY:
         fill = entry + fill_offset
@@ -178,7 +178,7 @@ def simulate_outcome(
         fill = entry - fill_offset
     risk = abs(fill - sl)
     if risk <= 0:
-        return False, 0.0, 0.0, 0.0
+        return False, 0.0, 0.0, 0.0, "invalid"
     commission_r = 0.0
     value_per_r = lots * (risk / tick_size) * tick_value if tick_size > 0 else 0.0
     if commission_per_lot > 0 and value_per_r > 0:
@@ -190,22 +190,22 @@ def simulate_outcome(
             mfe = max(mfe, (candle.high - fill) / risk)
             mae = min(mae, (candle.low - fill) / risk)
             if candle.low <= sl:
-                return False, -1.0 - commission_r, mfe, abs(mae)
+                return False, -1.0 - commission_r, mfe, abs(mae), "sl"
             if candle.high >= tp:
-                return True, (tp - fill) / risk - commission_r, mfe, abs(mae)
+                return True, (tp - fill) / risk - commission_r, mfe, abs(mae), "tp"
         else:
             mfe = max(mfe, (fill - candle.low) / risk)
             mae = min(mae, (fill - candle.high) / risk)
             if candle.high >= sl:
-                return False, -1.0 - commission_r, mfe, abs(mae)
+                return False, -1.0 - commission_r, mfe, abs(mae), "sl"
             if candle.low <= tp:
-                return True, (fill - tp) / risk - commission_r, mfe, abs(mae)
+                return True, (fill - tp) / risk - commission_r, mfe, abs(mae), "tp"
     last = future[-1].close if future else fill
     if direction == Direction.BUY:
         r_mult = (last - fill) / risk - commission_r
     else:
         r_mult = (fill - last) / risk - commission_r
-    return r_mult > 0, r_mult, mfe, abs(mae)
+    return r_mult > 0, r_mult, mfe, abs(mae), "timeout"
 
 
 def run_backtest(
@@ -244,7 +244,7 @@ def run_backtest(
         last_signal = decision.signal.signal_id
         plan = decision.signal.plan
         costs = settings.backtest
-        win, r_mult, mfe, mae = simulate_outcome(
+        win, r_mult, mfe, mae, _exit = simulate_outcome(
             m15[i + 1 :],
             plan.direction,
             plan.entry,

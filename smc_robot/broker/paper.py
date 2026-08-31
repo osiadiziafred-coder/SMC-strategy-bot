@@ -20,7 +20,13 @@ class PaperBroker(Broker):
         ask: float = 2000.25,
         quote_time: datetime | None = None,
     ):
-        self.spec = spec or SymbolSpec(name="XAUUSDm")
+        self.spec = spec or SymbolSpec(
+            name="XAUUSDm",
+            bid=bid,
+            ask=ask,
+            spread=(ask - bid) / 0.01 if ask >= bid else 0.0,
+            trade_mode="full",
+        )
         self.balance = balance
         self.candles_by_tf = candles_by_tf or {}
         self.bid = bid
@@ -37,7 +43,25 @@ class PaperBroker(Broker):
         self.connected = False
 
     def symbol_spec(self, symbol: str) -> SymbolSpec:
-        return self.spec
+        if symbol != self.spec.name:
+            raise RuntimeError(f"Exact symbol {symbol} not found (paper has {self.spec.name})")
+        return SymbolSpec(
+            name=self.spec.name,
+            point=self.spec.point,
+            digits=self.spec.digits,
+            volume_min=self.spec.volume_min,
+            volume_max=self.spec.volume_max,
+            volume_step=self.spec.volume_step,
+            trade_stops_level=self.spec.trade_stops_level,
+            filling_mode=self.spec.filling_mode,
+            tick_size=self.spec.tick_size,
+            tick_value=self.spec.tick_value,
+            margin_initial=self.spec.margin_initial,
+            trade_mode=self.spec.trade_mode,
+            spread=(self.ask - self.bid) / self.spec.point if self.spec.point else self.spec.spread,
+            bid=self.bid,
+            ask=self.ask,
+        )
 
     def account_balance(self) -> float:
         return self.balance

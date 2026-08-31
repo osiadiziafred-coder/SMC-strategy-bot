@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import pickle
 
 import numpy as np
 
@@ -112,19 +113,41 @@ def train_model(features: np.ndarray, labels: np.ndarray, path: str | Path):
     name, model, scores = select_model(x_tr, y_tr, x_va, y_va)
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(
-        {
-            "model": model,
-            "features": FEATURE_NAMES,
-            "trained_offline": True,
-            "selected_model": name,
-            "validation_scores": scores,
-            "feature_importance": feature_importance_map(model),
-            "shuffle": False,
-        },
-        target,
-    )
+    payload = {
+        "model": model,
+        "features": FEATURE_NAMES,
+        "trained_offline": True,
+        "selected_model": name,
+        "validation_scores": scores,
+        "feature_importance": feature_importance_map(model),
+        "shuffle": False,
+    }
+    joblib.dump(payload, target)
+    _export_pickle_copies(payload, target)
     return model
+
+
+def _export_pickle_copies(payload: dict, target: Path) -> None:
+    copies = []
+    if target.suffix.lower() != ".pkl":
+        copies.append(target.with_name("smc_model.pkl"))
+    repo_root = Path(__file__).resolve().parents[2]
+    try:
+        resolved = target.resolve()
+    except OSError:
+        resolved = target
+    if resolved.parent == (repo_root / "models").resolve():
+        copies.append(repo_root / "models" / "smc_model.pkl")
+        copies.append(repo_root / "python_smc_ml_robot" / "models" / "smc_model.pkl")
+    seen: set[str] = set()
+    for dest in copies:
+        key = str(dest)
+        if key in seen:
+            continue
+        seen.add(key)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with dest.open("wb") as handle:
+            pickle.dump(payload, handle)
 
 
 def load_sklearn_model(path: str | Path):

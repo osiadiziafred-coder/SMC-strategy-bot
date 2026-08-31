@@ -64,9 +64,18 @@ class MT5Broker(Broker):
             info = mt5.symbol_info(symbol)
         if info is None:
             raise RuntimeError(f"Cannot load symbol {symbol}")
+        if str(info.name) != symbol:
+            raise RuntimeError(f"Exact symbol {symbol} not found (broker returned {info.name})")
+        tick = mt5.symbol_info_tick(symbol)
+        bid = float(getattr(tick, "bid", 0) or getattr(info, "bid", 0) or 0.0) if tick is not None else float(getattr(info, "bid", 0) or 0.0)
+        ask = float(getattr(tick, "ask", 0) or getattr(info, "ask", 0) or 0.0) if tick is not None else float(getattr(info, "ask", 0) or 0.0)
+        point = float(info.point)
+        spread_pts = float(getattr(info, "spread", 0) or 0.0)
+        if spread_pts <= 0 and point > 0 and bid > 0 and ask >= bid:
+            spread_pts = (ask - bid) / point
         return SymbolSpec(
-            name=info.name,
-            point=float(info.point),
+            name=str(info.name),
+            point=point,
             digits=int(info.digits),
             volume_min=float(info.volume_min),
             volume_max=float(info.volume_max),
@@ -76,6 +85,10 @@ class MT5Broker(Broker):
             tick_size=float(getattr(info, "trade_tick_size", 0) or info.point),
             tick_value=float(getattr(info, "trade_tick_value", 0) or 1.0),
             margin_initial=float(getattr(info, "margin_initial", 0) or 0.0),
+            trade_mode=_trade_mode_name(mt5, getattr(info, "trade_mode", 4)),
+            spread=spread_pts,
+            bid=bid,
+            ask=ask,
         )
 
     def account_balance(self) -> float:
@@ -212,6 +225,22 @@ class MT5Broker(Broker):
         if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
             raise RuntimeError(f"modify SL failed: {mt5.last_error()}")
         return position.model_copy(update={"sl": sl, "breakeven_applied": True})
+
+
+def _trade_mode_name(mt5, raw) -> str:
+    mapping = {
+        int(getattr(mt5, "SYMBOL_TRADE_MODE_DISABLED", 0)): "disabled",
+        int(getattr(mt5, "SYMBOL_TRADE_MODE_LONGONLY", 1)): "longonly",
+        int(getattr(mt5, "SYMBOL_TRADE_MODE_SHORTONLY", 2)): "shortonly",
+        int(getattr(mt5, "SYMBOL_TRADE_MODE_CLOSEONLY", 3)): "closeonly",
+        int(getattr(mt5, "SYMBOL_TRADE_MODE_FULL", 4)): "full",
+    }
+    if isinstance(raw, str) and not raw.isdigit():
+        return raw
+    try:
+        return mapping.get(int(raw), str(raw))
+    except (TypeError, ValueError):
+        return str(raw)
 
 
 def _filling_mode(mt5, filling_mode: int) -> int:

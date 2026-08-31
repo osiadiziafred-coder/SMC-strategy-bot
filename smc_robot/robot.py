@@ -11,6 +11,7 @@ from smc_robot.engine import SmcEngine
 from smc_robot.journal import DecisionJournal
 from smc_robot.logger import configure_logging
 from smc_robot.manager import PositionManager
+from smc_robot.market_data import inspect_market, load_mtf
 from smc_robot.models import Direction, SwingKind
 from smc_robot.risk.daily import DailyGuard
 from smc_robot.risk.protection import ExecutionGuard
@@ -41,6 +42,7 @@ class SmcRobot:
         self._last_bar_time: datetime | None = None
         self._last_signal_id: str | None = None
         self._known_tickets: set[int] = set()
+        self._logged_symbol = False
 
     def _needs_trained_model(self) -> bool:
         if self.settings.scoring.require_ml:
@@ -55,6 +57,27 @@ class SmcRobot:
 
     def run_forever(self) -> None:
         self.broker.connect()
+        try:
+            spec, quote, snap = inspect_market(self.broker, self.settings)
+            logger.info(
+                "Symbol verified %s bid=%.5f ask=%.5f point=%s digits=%s "
+                "min_lot=%s max_lot=%s lot_step=%s spread=%.1f trade_mode=%s",
+                snap["symbol"],
+                quote.bid,
+                quote.ask,
+                snap["point"],
+                snap["digits"],
+                snap["volume_min"],
+                snap["volume_max"],
+                snap["volume_step"],
+                snap["spread"],
+                snap["trade_mode"],
+            )
+            self._logged_symbol = True
+            _ = spec
+        except Exception:
+            logger.exception("Symbol/market inspection failed; refusing to trade")
+            raise
         logger.info(
             "SMC robot started symbol=%s dry_run=%s bridge=%s",
             self.settings.symbol,
@@ -81,8 +104,17 @@ class SmcRobot:
                 logger.warning("MQL5 bridge disconnected; no new trades")
                 return "bridge_disconnected"
 
-        spec = self.broker.symbol_spec(symbol)
-        quote = self.broker.quote(symbol)
+        try:
+            spec, quote, snap = inspect_market(self.broker, self.settings)
+        except Exception as exc:
+            reason = str(exc).split(":")[0] or "symbol_unavailable"
+            logger.warning("Market inspection failed: %s", exc)
+            if self.use_bridge and self.bridge is not None:
+                self.bridge.send_none(reason)
+            return reason
+        if not self._logged_symbol:
+            logger.info("Symbol snapshot %s", snap)
+            self._logged_symbol = True
         self.guard.observe(quote.spread_points)
         equity = self.broker.account_balance()
         self.daily.roll(quote.time, equity)
@@ -118,9 +150,11 @@ class SmcRobot:
             logger.warning("Execution blocked: %s", reason)
             return f"blocked:{reason}"
 
-        h1 = self.broker.candles(symbol, "H1", self.settings.bars.h1)
-        m30 = self.broker.candles(symbol, "M30", self.settings.bars.m30)
-        m15 = self.broker.candles(symbol, "M15", self.settings.bars.m15)
+        try:
+            h1, m30, m15 = load_mtf(self.broker, self.settings, symbol)
+        except Exception as exc:
+            logger.warning("Market data failed: %s", exc)
+            return "incomplete_market_data"
         if self.settings.robot.analyze_on_closed_bar_only:
             h1, m30, m15 = h1[:-1] or h1, m30[:-1] or m30, m15[:-1] or m15
         if not h1 or not m30 or not m15:

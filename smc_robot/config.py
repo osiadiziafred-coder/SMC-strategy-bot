@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class TimeframeConfig(BaseModel):
@@ -60,9 +60,19 @@ class ScoringConfig(BaseModel):
     require_ml: bool = False
     ml_blend: float = 0.40
     ml_min_probability: float = 0.70
+    min_ml_score: float | None = None
+    allowed_ml_thresholds: list[float] = Field(
+        default_factory=lambda: [0.60, 0.65, 0.70, 0.75, 0.80, 0.85]
+    )
     model_path: str = "models/smc_scorer.joblib"
     allowed_grades: list[str] = Field(default_factory=lambda: ["A+", "A"])
     weights: ScoringWeights = Field(default_factory=ScoringWeights)
+
+    @model_validator(mode="after")
+    def apply_min_ml_score_alias(self):
+        if self.min_ml_score is not None:
+            self.ml_min_probability = float(self.min_ml_score)
+        return self
 
 
 class RiskConfig(BaseModel):

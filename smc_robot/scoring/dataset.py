@@ -67,6 +67,20 @@ def build_labeled_dataset(
                 direction, h1_a, m30_a, m15_a, conditions, settings, sweep, order_block, fvg
             )
             label = 0
+            row = {
+                "index": i,
+                "time": stamp.isoformat(),
+                "direction": direction.value,
+                "label": 0,
+                "entry": None,
+                "sl": None,
+                "tp": None,
+                "mfe": None,
+                "mae": None,
+                "tp_hit": False,
+                "sl_hit": False,
+                "outcome": "skip",
+            }
             if sweep is not None and (order_block is not None or fvg is not None):
                 entry = quote.ask if direction == Direction.BUY else quote.bid
                 plan = build_trade_plan(
@@ -81,7 +95,7 @@ def build_labeled_dataset(
                     settings,
                 )
                 if plan is not None and future:
-                    win, _r, _mfe, _mae = simulate_outcome(
+                    win, _r, mfe, mae, exit_reason = simulate_outcome(
                         future,
                         plan.direction,
                         plan.entry,
@@ -90,16 +104,22 @@ def build_labeled_dataset(
                         point=spec.point,
                     )
                     label = 1 if win else 0
+                    row.update(
+                        {
+                            "label": label,
+                            "entry": plan.entry,
+                            "sl": plan.sl,
+                            "tp": plan.tp,
+                            "mfe": float(mfe),
+                            "mae": float(mae),
+                            "tp_hit": exit_reason == "tp",
+                            "sl_hit": exit_reason == "sl",
+                            "outcome": exit_reason,
+                        }
+                    )
             features.append(feature_vector(feat))
             labels.append(label)
-            meta.append(
-                {
-                    "index": i,
-                    "time": stamp.isoformat(),
-                    "direction": direction.value,
-                    "label": label,
-                }
-            )
+            meta.append(row)
     if not features:
         return np.empty((0, 0)), np.empty((0,), dtype=int), []
     return np.vstack(features), np.asarray(labels, dtype=int), meta

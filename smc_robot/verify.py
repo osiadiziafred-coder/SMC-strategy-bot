@@ -80,6 +80,14 @@ def run_verification(tmp: Path | None = None) -> dict:
     except Exception as exc:
         checks.append(_check("1_python_runs", False, str(exc)))
 
+    try:
+        import python_smc_ml_robot.main  # noqa: F401
+        from python_smc_ml_robot.config import MIN_ML_SCORE
+
+        checks.append(_check("1b_spec_package", MIN_ML_SCORE == 0.70, "python_smc_ml_robot"))
+    except Exception as exc:
+        checks.append(_check("1b_spec_package", False, str(exc)))
+
     for name in ("pyhonAI_SMC.mq5", "PythonAI_SMC.mq5", "PythonML_SMC_Bridge.mq5"):
         ok, detail = _mql5_static(root / name)
         checks.append(_check(f"2_mql5_static_{name}", ok, detail))

@@ -59,15 +59,16 @@ def train_from_history(
 ) -> dict:
     settings = settings or Settings()
     h1, m30, m15, source = load_history(settings, bars=bars, seed=seed)
-    features, labels, _meta = build_labeled_dataset(
+    features, labels, meta = build_labeled_dataset(
         h1, m30, m15, settings=settings, start_index=80, step=2
     )
     if allow_fallback and (len(labels) < 20 or len(set(labels.tolist())) < 2):
         h1_b, m30_b, m15_b = training_frames(n=max(bars, 900), seed=seed + 3)
-        features, labels, _meta = build_labeled_dataset(
+        features, labels, meta = build_labeled_dataset(
             h1_b, m30_b, m15_b, settings=settings, start_index=70, step=1
         )
         source = f"{source}+generated_fallback"
+    history_files = _write_history_files(features, labels, meta, source)
     model = train_model(features, labels, out_path)
     x_tr, y_tr, x_va, y_va, x_te, y_te = chronological_split(features, labels)
     _ = x_tr, y_tr
@@ -75,6 +76,8 @@ def train_from_history(
     test_acc = float((model.predict(x_te) == y_te).mean()) if len(y_te) else 0.0
     return {
         "model": out_path,
+        "pkl": str(Path(out_path).with_name("smc_model.pkl")),
+        "history_files": history_files,
         "source": source,
         "rows": int(len(labels)),
         "positives": int(labels.sum()),
@@ -85,6 +88,28 @@ def train_from_history(
         "shuffle": False,
         "note": "Trained on time-ordered SMC features. Live trading loads this file; it does not refit.",
     }
+
+
+def _write_history_files(features, labels, meta, source: str) -> list[str]:
+    repo_root = Path(__file__).resolve().parents[2]
+    roots = [
+        repo_root / "data" / "historical_data",
+        repo_root / "python_smc_ml_robot" / "data" / "historical_data",
+    ]
+    lines = []
+    for row, _feat, lab in zip(meta, features, labels):
+        rec = dict(row)
+        rec["label"] = int(lab)
+        rec["source"] = source
+        lines.append(json.dumps(rec, default=str))
+    written: list[str] = []
+    body = "\n".join(lines) + ("\n" if lines else "")
+    for root in roots:
+        root.mkdir(parents=True, exist_ok=True)
+        dest = root / "setups.jsonl"
+        dest.write_text(body, encoding="utf-8")
+        written.append(str(dest))
+    return written
 
 
 def main(argv: list[str] | None = None) -> int:

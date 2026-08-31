@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import hashlib
-
+from smc_robot.bridge import new_command_id
 from smc_robot.config import Settings
 from smc_robot.models import Candle, Decision, Direction, Signal, Trend
 from smc_robot.risk.protection import Quote
@@ -164,7 +163,7 @@ class SmcEngine:
             return Decision(action="skip", reason="invalid_trade_plan", score=score)
 
         raw = f"{self.settings.symbol}:{direction.value}:{m15[-1].time.isoformat()}"
-        signal_id = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+        signal_id = new_command_id("trade", when=m15[-1].time, salt=raw)
         signal = Signal(
             signal_id=signal_id,
             direction=direction,
