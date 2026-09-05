@@ -7,12 +7,20 @@ from pathlib import Path
 from smc_overlay import (
     DIR_BEAR,
     DIR_BULL,
+    DIR_NONE,
     KIND_BOS,
     KIND_CHOCH,
     KIND_MSS,
     V50_1S_ALIASES,
     V75_ALIASES,
+    ZONE_FVG,
+    Setup,
+    Snapshot,
+    Sweep,
+    Zone,
+    Event,
     analyze,
+    build_setup,
     chat_lines,
     classify_symbol,
     detect_fvg,
@@ -20,6 +28,7 @@ from smc_overlay import (
     detect_structure,
     detect_sweeps,
     detect_swings,
+    pick_dual_pair_trades,
     resolve_from_market,
     zone_name,
 )
@@ -36,8 +45,10 @@ def _ohlc_from_closes(closes: list[float], wick: float = 1.0) -> tuple[list[floa
 
 def test_ea_file_exists_and_is_bridge() -> None:
     text = EA_PATH.read_text(encoding="utf-8")
-    assert "#property version   \"3.02\"" in text
-    assert "never invents BUY/SELL" in text or "Python still decides BUY/SELL" in text
+    assert "#property version   \"3.03\"" in text
+    assert "InpRequireBothPairs" in text
+    assert "PICK " in text
+    assert "MaybeAutoTrade" in text
     assert EA_PATH.read_text(encoding="utf-8") == (
         Path(__file__).resolve().parents[1] / "PythonML_SMC_Bridge.mq5"
     ).read_text(encoding="utf-8")
@@ -189,3 +200,91 @@ def test_chat_lines_list_every_requested_concept() -> None:
     ):
         assert label in lines
     assert "Volatility 75 Index" in lines
+
+
+def _forced_setup(direction: int, *, valid: bool = True) -> Setup:
+    return Setup(
+        valid=valid,
+        direction=direction,
+        sl=100.0,
+        tp=104.0,
+        confluence=5,
+        zone_kind=ZONE_FVG,
+        eq_extra=True,
+        why="bias+BOS+sweep+eq_sweep_extra+FVG",
+    )
+
+
+def test_build_setup_needs_sweep_and_zone_tap() -> None:
+    n = 80
+    opens = [110.0] * n
+    highs = [110.5] * n
+    lows = [108.2] * n
+    closes = [108.5] * n
+    highs[-1], lows[-1], closes[-1] = 108.8, 108.2, 108.5
+    snap = Snapshot(
+        bias=DIR_BULL,
+        events=[Event(index=50, kind=KIND_BOS, direction=DIR_BULL, broken=110.0)],
+        sweeps=[
+            Sweep(
+                index=70,
+                direction=DIR_BULL,
+                swept_price=108.0,
+                wick=107.4,
+                equal_extra=True,
+                members=2,
+            )
+        ],
+        fvgs=[Zone(60, 62, 108.0, 109.0, DIR_BULL, ZONE_FVG, False)],
+    )
+    setup = build_setup(opens, highs, lows, closes, snap=snap, min_confluence=4)
+    assert setup.valid
+    assert setup.direction == DIR_BULL
+    assert setup.eq_extra
+    assert "FVG" in setup.why
+
+
+def test_build_setup_rejects_missing_sweep() -> None:
+    n = 40
+    opens = highs = lows = closes = [10.0] * n
+    snap = Snapshot(
+        bias=DIR_BULL,
+        events=[Event(index=20, kind=KIND_BOS, direction=DIR_BULL, broken=10.0)],
+        fvgs=[Zone(30, 32, 9.5, 10.2, DIR_BULL, ZONE_FVG, False)],
+    )
+    setup = build_setup(opens, highs, lows, closes, snap=snap, require_sweep=True)
+    assert not setup.valid
+    assert setup.why == "no_sweep"
+
+
+def test_pick_trade_only_when_both_pairs_align() -> None:
+    bull = _forced_setup(DIR_BULL)
+    bear = _forced_setup(DIR_BEAR)
+    none = _forced_setup(DIR_BULL, valid=False)
+
+    t1, t2, direction, status = pick_dual_pair_trades(bull, bull, require_both=True)
+    assert t1 and t2
+    assert direction == DIR_BULL
+    assert status == "PICK BUY on both pairs"
+
+    t1, t2, direction, status = pick_dual_pair_trades(bear, bear, require_both=True)
+    assert t1 and t2
+    assert direction == DIR_BEAR
+    assert status == "PICK SELL on both pairs"
+
+    t1, t2, direction, status = pick_dual_pair_trades(bull, none, require_both=True)
+    assert not t1 and not t2
+    assert direction == DIR_NONE
+    assert "Volatility 50 (1s)" in status
+
+    t1, t2, direction, status = pick_dual_pair_trades(bull, bear, require_both=True)
+    assert not t1 and not t2
+    assert status == "pairs not aligned"
+
+
+def test_ea_auto_trade_requires_both_pairs() -> None:
+    text = EA_PATH.read_text(encoding="utf-8")
+    assert "InpRequireBothPairs   = true" in text
+    assert "waiting for setup on both pairs" in text
+    assert "PICK BUY on both pairs" in text or 'PICK " + (direction == DIR_BULL ? "BUY" : "SELL") + " on both pairs' in text
+    assert "SMC-SETUP" in text

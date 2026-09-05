@@ -14,7 +14,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from smc_overlay import DIR_BULL, KIND_BOS, KIND_CHOCH, KIND_MSS, analyze, chat_lines
+from smc_overlay import DIR_BULL, KIND_BOS, KIND_CHOCH, KIND_MSS, analyze, build_setup, chat_lines, pick_dual_pair_trades
 
 
 def _walk(seed: int, n: int, start: float, vol: float) -> tuple[list[float], list[float], list[float], list[float]]:
@@ -39,10 +39,11 @@ def _walk(seed: int, n: int, start: float, vol: float) -> tuple[list[float], lis
     return open_.tolist(), high.tolist(), low.tolist(), close.tolist()
 
 
-def _panel(ax, title: str, o, h, l, c) -> str:
+def _panel(ax, title: str, o, h, l, c):
     x = np.arange(len(c))
     ax.plot(x, c, color="#d8dee9", lw=1.1, zorder=3)
     snap = analyze(o, h, l, c)
+    setup = build_setup(o, h, l, c, snap=snap)
     for zone in snap.fvgs[-6:]:
         if zone.mitigated:
             continue
@@ -71,7 +72,8 @@ def _panel(ax, title: str, o, h, l, c) -> str:
     ax.set_facecolor("#1b1f2a")
     ax.tick_params(colors="#aeb6bf")
     ax.grid(alpha=0.15, color="#7f8c8d")
-    return "\n".join(chat_lines(title, snap))
+    setup_line = f"  SETUP: {'YES ' + ('BULL' if setup.direction == DIR_BULL else 'BEAR') + ' ' + setup.why if setup.valid else 'no (' + setup.why + ')'}"
+    return "\n".join(chat_lines(title, snap) + [setup_line]), setup
 
 
 def main() -> int:
@@ -82,11 +84,12 @@ def main() -> int:
     fig, axes = plt.subplots(2, 1, figsize=(14, 10))
     fig.patch.set_facecolor("#12151c")
     o, h, l, c = _walk(7, 220, 184500.0, 0.004)
-    chat1 = _panel(axes[0], "Volatility 75 Index", o, h, l, c)
+    chat1, setup1 = _panel(axes[0], "Volatility 75 Index", o, h, l, c)
     o, h, l, c = _walk(21, 220, 245000.0, 0.003)
-    chat2 = _panel(axes[1], "Volatility 50 (1s) Index", o, h, l, c)
+    chat2, setup2 = _panel(axes[1], "Volatility 50 (1s) Index", o, h, l, c)
+    _, _, _, pick = pick_dual_pair_trades(setup1, setup2, require_both=True)
     fig.suptitle(
-        "SMC on the chart chat  |  Liquidity sweep  EQ sweep extra  Order Block  FVG  BOS  CHoCH  MSS",
+        f"Dual-pair SMC  |  {pick}  |  Liquidity sweep  EQ sweep extra  OB  FVG  BOS  CHoCH  MSS",
         color="white",
         fontsize=13,
     )
@@ -97,9 +100,9 @@ def main() -> int:
     plt.close(fig)
     chat_path = out.with_name("smc_chart_chat_panel.txt")
     chat_path.write_text(
-        "Python ML SMC Bridge  3.02\n"
+        "Python ML SMC Bridge  3.03\n"
         "Symbols: Volatility 75 Index  |  Volatility 50 (1s) Index\n"
-        "Python: FRESH   overlay is display-only\n"
+        f"TRADE: {pick}\n"
         "--------------------------------\n"
         f"{chat1}\n"
         "--------------------------------\n"

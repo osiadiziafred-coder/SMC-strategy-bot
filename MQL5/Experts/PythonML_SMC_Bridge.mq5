@@ -1,17 +1,14 @@
 #property copyright "Python ML SMC Robot"
-#property version   "3.02"
-#property description "MQL5 safety bridge + SMC chart chat. Python decides BUY/SELL. Do not paste Python here."
+#property version   "3.03"
+#property description "SMC dual-pair bot. Picks BUY/SELL when V75 and V50 (1s) both have a setup."
 
 //+------------------------------------------------------------------+
 //| PythonML_SMC_Bridge.mq5                                          |
-//| TWO PROGRAMS:                                                    |
-//|   Python = ML/SMC brain (command.json)                           |
-//|   This EA = execute + protect + DRAW SMC on the chart chat       |
-//|                                                                  |
-//| Symbols: Volatility 75 Index  and  Volatility 50 (1s) Index      |
-//| Overlay (display only, never invents BUY/SELL):                  |
-//|   Liquidity sweep, Equal-liquidity sweep extra,                  |
-//|   Order Block, FVG, BOS, CHoCH, MSS                              |
+//| PICK TRADES when BOTH pairs print an aligned SMC setup:          |
+//|   Volatility 75 Index  AND  Volatility 50 (1s) Index             |
+//| Setup = BOS/CHoCH/MSS + liquidity sweep (or EQ sweep extra)      |
+//|         + Order Block or FVG tap                                 |
+//| Python command.json still works. Overlay stays on the chart chat.|
 //| Common\Files\smc_bridge\command.json  /  status.json             |
 //+------------------------------------------------------------------+
 
@@ -44,6 +41,16 @@ input double InpBeBufferPoints     = 0.0;
 input bool   InpProtectIfPythonLost = true;
 input int    InpPythonTimeoutSec   = 45;
 input string InpFolder             = "smc_bridge";
+input bool   InpAutoTrade          = true;
+input bool   InpRequireBothPairs   = true;
+input double InpLot1               = 0.0;
+input double InpLot2               = 0.0;
+input double InpRiskReward         = 2.0;
+input int    InpMinConfluence      = 4;
+input int    InpRecentBars         = 40;
+input int    InpCooldownBars       = 8;
+input bool   InpRequireSweep       = true;
+input double InpSlAtrMult          = 0.05;
 input bool   InpShowSmcChat        = true;
 input bool   InpDrawSmcObjects     = true;
 input bool   InpLogSmcEvents       = true;
@@ -82,6 +89,11 @@ string   g_chat2 = "";
 string   g_smcJson1 = "";
 string   g_smcJson2 = "";
 uint     g_lastDashMs = 0;
+string   g_pickStatus = "waiting for setup on both pairs";
+datetime g_closeTime1 = 0;
+datetime g_closeTime2 = 0;
+bool     g_hadPos1 = false;
+bool     g_hadPos2 = false;
 
 struct Swing
   {
@@ -138,6 +150,21 @@ struct BarSet
    double            c[];
   };
 
+struct TradeSetup
+  {
+   bool              valid;
+   int               direction;
+   double            sl;
+   double            tp;
+   int               confluence;
+   int               zone_kind;
+   bool              eq_extra;
+   string            why;
+  };
+
+TradeSetup g_setup1;
+TradeSetup g_setup2;
+
 int OnInit()
   {
    trade.SetExpertMagicNumber(InpMagic);
@@ -175,14 +202,17 @@ int OnInit()
       return INIT_FAILED;
 
    FolderCreate(InpFolder, FILE_COMMON);
+   ClearSetup(g_setup1);
+   ClearSetup(g_setup2);
    WriteStatus("init", 0, "ready");
    RefreshSmc(true);
+   MaybeAutoTrade();
    UpdateChat();
-   Print("Python ML SMC bridge ready on ",
+   Print("SMC dual-pair bot ready on ",
          (g_sym1 != "" ? g_sym1 : "-"),
          " / ",
          (g_sym2 != "" ? g_sym2 : "-"),
-         ". Decisions come from Python only. SMC overlay is display-only.");
+         ". Picks BUY/SELL when both pairs have an aligned SMC setup.");
    return INIT_SUCCEEDED;
   }
 
@@ -196,14 +226,16 @@ void OnDeinit(const int reason)
 void OnTick()
   {
    ReadAndExecuteCommand();
-   if(InpProtectIfPythonLost || PythonFresh())
+   if(InpAutoTrade || InpProtectIfPythonLost || PythonFresh())
      {
       if(g_sym1 != "")
          LocalManageSymbol(g_sym1);
       if(g_sym2 != "")
          LocalManageSymbol(g_sym2);
      }
+   NotePositionLifecycle();
    RefreshSmc(false);
+   MaybeAutoTrade();
    uint now = GetTickCount();
    if(now - g_lastDashMs >= 400)
      {
@@ -714,6 +746,338 @@ double NormalizeVolume(const string symbol, double lots)
    return NormalizeDouble(lots, digits);
   }
 
+void ClearSetup(TradeSetup &s)
+  {
+   s.valid = false;
+   s.direction = DIR_NONE;
+   s.sl = 0.0;
+   s.tp = 0.0;
+   s.confluence = 0;
+   s.zone_kind = 0;
+   s.eq_extra = false;
+   s.why = "none";
+  }
+
+bool PriceInZone(const double bar_low, const double bar_high, const Zone &z)
+  {
+   return (bar_low <= z.high && bar_high >= z.low);
+  }
+
+bool IsRecentIndex(const int index, const int last, const int lookback)
+  {
+   int dist = last - index;
+   return (dist >= 0 && dist <= lookback);
+  }
+
+void EvaluateSetup(const BarSet &bars, const int bias,
+                   const Event &events[], const Sweep &sweeps[],
+                   const Zone &fvgs[], const Zone &obs[], TradeSetup &out)
+  {
+   ClearSetup(out);
+   out.direction = bias;
+   if(bars.n < 5 || bias == DIR_NONE)
+     {
+      out.why = "no_bias";
+      return;
+     }
+   int last = bars.n - 1;
+   int score = 1;
+   string reasons = "bias";
+   bool has_bos = false;
+   bool has_rev = false;
+   bool has_struct = false;
+   for(int i = 0; i < ArraySize(events); i++)
+     {
+      if(events[i].direction != bias)
+         continue;
+      if(!IsRecentIndex(events[i].index, last, InpRecentBars))
+         continue;
+      has_struct = true;
+      if(events[i].kind == KIND_BOS)
+         has_bos = true;
+      if(events[i].kind == KIND_CHOCH || events[i].kind == KIND_MSS)
+         has_rev = true;
+     }
+   if(has_bos)
+     {
+      score++;
+      reasons += "+BOS";
+     }
+   if(has_rev)
+     {
+      score++;
+      reasons += "+CHoCH/MSS";
+     }
+   else if(has_struct && !has_bos)
+     {
+      score++;
+      reasons += "+structure";
+     }
+
+   Sweep best_sweep;
+   best_sweep.index = -1;
+   best_sweep.direction = DIR_NONE;
+   best_sweep.swept_price = 0.0;
+   best_sweep.wick = 0.0;
+   best_sweep.equal_extra = false;
+   best_sweep.members = 0;
+   bool have_sweep = false;
+   for(int i = 0; i < ArraySize(sweeps); i++)
+     {
+      if(sweeps[i].direction != bias)
+         continue;
+      if(!IsRecentIndex(sweeps[i].index, last, InpRecentBars))
+         continue;
+      have_sweep = true;
+      best_sweep = sweeps[i];
+     }
+   if(!have_sweep && InpRequireSweep)
+     {
+      out.confluence = score;
+      out.why = "no_sweep";
+      return;
+     }
+   if(have_sweep)
+     {
+      score++;
+      reasons += "+sweep";
+      if(best_sweep.equal_extra)
+        {
+         score++;
+         reasons += "+eq_sweep_extra";
+         out.eq_extra = true;
+        }
+     }
+
+   int best_zone = -1;
+   int best_kind = 0;
+   double best_d = 1e100;
+   double px = bars.c[last];
+   for(int pass = 0; pass < 2; pass++)
+     {
+      int n = (pass == 0 ? ArraySize(fvgs) : ArraySize(obs));
+      for(int i = 0; i < n; i++)
+        {
+         Zone z;
+         if(pass == 0)
+            z = fvgs[i];
+         else
+            z = obs[i];
+         if(z.mitigated || z.direction != bias)
+            continue;
+         if(!PriceInZone(bars.l[last], bars.h[last], z))
+            continue;
+         double mid = 0.5 * (z.low + z.high);
+         double d = MathMin(MathAbs(px - z.low), MathMin(MathAbs(px - z.high), MathAbs(px - mid)));
+         if(d < best_d)
+           {
+            best_d = d;
+            best_zone = i;
+            best_kind = z.kind;
+            out.zone_kind = z.kind;
+           }
+        }
+     }
+   if(best_zone < 0)
+     {
+      out.confluence = score;
+      out.why = "no_zone_tap";
+      return;
+     }
+   Zone zone;
+   if(best_kind == ZONE_FVG)
+      zone = fvgs[best_zone];
+   else
+      zone = obs[best_zone];
+   score++;
+   reasons += (zone.kind == ZONE_OB ? "+OB" : "+FVG");
+
+   double buf = CalcAtr(bars, 14) * InpSlAtrMult;
+   double sl = 0.0;
+   double tp = 0.0;
+   if(bias == DIR_BULL)
+     {
+      sl = zone.low;
+      if(have_sweep)
+         sl = MathMin(sl, best_sweep.wick);
+      sl -= buf;
+      double risk = px - sl;
+      if(risk <= 0.0)
+        {
+         out.why = "bad_sl";
+         return;
+        }
+      tp = px + InpRiskReward * risk;
+     }
+   else
+     {
+      sl = zone.high;
+      if(have_sweep)
+         sl = MathMax(sl, best_sweep.wick);
+      sl += buf;
+      double risk = sl - px;
+      if(risk <= 0.0)
+        {
+         out.why = "bad_sl";
+         return;
+        }
+      tp = px - InpRiskReward * risk;
+     }
+   out.confluence = score;
+   out.sl = sl;
+   out.tp = tp;
+   if(score < InpMinConfluence)
+     {
+      out.why = "confluence_" + IntegerToString(score);
+      return;
+     }
+   out.valid = true;
+   out.why = reasons;
+  }
+
+double LotFor(const string symbol, const int which)
+  {
+   double lots = (which == 1 ? InpLot1 : InpLot2);
+   if(lots <= 0.0)
+      lots = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
+   return NormalizeVolume(symbol, lots);
+  }
+
+bool InCooldown(const string symbol, const datetime closed_at)
+  {
+   if(closed_at <= 0)
+      return false;
+   int elapsed = (int)((TimeCurrent() - closed_at) / PeriodSeconds(TfFor(symbol)));
+   return (elapsed < InpCooldownBars);
+  }
+
+void NotePositionLifecycle()
+  {
+   bool p1 = (g_sym1 != "" && CountOurPositions(g_sym1) > 0);
+   bool p2 = (g_sym2 != "" && CountOurPositions(g_sym2) > 0);
+   if(g_hadPos1 && !p1)
+      g_closeTime1 = TimeCurrent();
+   if(g_hadPos2 && !p2)
+      g_closeTime2 = TimeCurrent();
+   g_hadPos1 = p1;
+   g_hadPos2 = p2;
+  }
+
+void ExecuteSetupTrade(const string symbol, const int which, const TradeSetup &setup)
+  {
+   if(symbol == "" || !setup.valid)
+      return;
+   if(CountOurPositions(symbol) >= 1)
+      return;
+   datetime closed_at = (which == 1 ? g_closeTime1 : g_closeTime2);
+   if(InCooldown(symbol, closed_at))
+     {
+      g_lastError = "cooldown";
+      return;
+     }
+   string action = (setup.direction == DIR_BULL ? "BUY" : "SELL");
+   double lots = LotFor(symbol, which);
+   double price = (setup.direction == DIR_BULL)
+                  ? SymbolInfoDouble(symbol, SYMBOL_ASK)
+                  : SymbolInfoDouble(symbol, SYMBOL_BID);
+   double sl = setup.sl;
+   double tp = setup.tp;
+   if(setup.direction == DIR_BULL)
+     {
+      double risk = price - sl;
+      if(risk <= 0.0)
+         return;
+      tp = price + InpRiskReward * risk;
+     }
+   else
+     {
+      double risk = sl - price;
+      if(risk <= 0.0)
+         return;
+      tp = price - InpRiskReward * risk;
+     }
+   sl = NormalizePrice(symbol, sl);
+   tp = NormalizePrice(symbol, tp);
+   string err = BrokerBlockReason(symbol, lots, sl, tp, action);
+   if(err != "")
+     {
+      g_lastError = err;
+      Print("Setup trade blocked ", symbol, " ", err);
+      return;
+     }
+   trade.SetTypeFilling(DetectFilling(symbol));
+   bool ok = false;
+   if(setup.direction == DIR_BULL)
+      ok = trade.Buy(lots, symbol, price, sl, tp, "SMC-SETUP");
+   else
+      ok = trade.Sell(lots, symbol, price, sl, tp, "SMC-SETUP");
+   g_lastRetcode = (int)trade.ResultRetcode();
+   ulong ticket = trade.ResultOrder();
+   if(ok)
+     {
+      price = trade.ResultPrice();
+      RememberRisk(ticket, MathAbs(price - sl));
+      g_lastError = "picked_" + action;
+      Print("PICK ", action, " ", symbol, " lots=", lots, " sl=", sl, " tp=", tp,
+            " why=", setup.why, " confluence=", setup.confluence);
+     }
+   else
+      g_lastError = trade.ResultRetcodeDescription();
+   g_lastTicket = ticket;
+  }
+
+void MaybeAutoTrade()
+  {
+   if(!InpAutoTrade)
+     {
+      g_pickStatus = "auto trade off";
+      return;
+     }
+   bool t1 = false;
+   bool t2 = false;
+   int direction = DIR_NONE;
+   if(InpRequireBothPairs)
+     {
+      if(!g_setup1.valid && !g_setup2.valid)
+         g_pickStatus = "waiting for setup on both pairs";
+      else if(!g_setup1.valid)
+         g_pickStatus = "waiting for Volatility 75 setup";
+      else if(!g_setup2.valid)
+         g_pickStatus = "waiting for Volatility 50 (1s) setup";
+      else if(g_setup1.direction != g_setup2.direction)
+         g_pickStatus = "pairs not aligned";
+      else
+        {
+         t1 = true;
+         t2 = true;
+         direction = g_setup1.direction;
+         g_pickStatus = "PICK " + (direction == DIR_BULL ? "BUY" : "SELL") + " on both pairs";
+        }
+     }
+   else
+     {
+      t1 = g_setup1.valid;
+      t2 = g_setup2.valid;
+      if(t1 && t2 && g_setup1.direction != g_setup2.direction)
+        {
+         t1 = false;
+         t2 = false;
+         g_pickStatus = "pairs not aligned";
+        }
+      else if(t1 || t2)
+        {
+         direction = (t1 ? g_setup1.direction : g_setup2.direction);
+         g_pickStatus = "PICK " + (direction == DIR_BULL ? "BUY" : "SELL");
+        }
+      else
+         g_pickStatus = "no setup";
+     }
+   if(t1)
+      ExecuteSetupTrade(g_sym1, 1, g_setup1);
+   if(t2)
+      ExecuteSetupTrade(g_sym2, 2, g_setup2);
+  }
+
 void RefreshSmc(const bool force)
   {
    if(g_sym1 != "")
@@ -726,28 +1090,36 @@ void RefreshSmcSymbol(const string symbol, const int which, const bool force)
   {
    ENUM_TIMEFRAMES tf = TfFor(symbol);
    datetime bar = iTime(symbol, tf, 0);
+   bool is_new = true;
    if(!force)
      {
       if(which == 1 && bar == g_lastBar1)
-         return;
+         is_new = false;
       if(which == 2 && bar == g_lastBar2)
-         return;
+         is_new = false;
      }
-   if(which == 1)
-      g_lastBar1 = bar;
-   else
-      g_lastBar2 = bar;
+   if(!is_new && !InpAutoTrade)
+      return;
+   if(is_new)
+     {
+      if(which == 1)
+         g_lastBar1 = bar;
+      else
+         g_lastBar2 = bar;
+     }
 
    BarSet bars;
    if(!LoadBars(symbol, tf, bars))
      {
       if(which == 1)
         {
+         ClearSetup(g_setup1);
          g_chat1 = symbol + "  waiting for bars";
          g_smcJson1 = "\"symbol\":\"" + JsonEsc(symbol) + "\",\"bias\":\"flat\"";
         }
       else
         {
+         ClearSetup(g_setup2);
          g_chat2 = symbol + "  waiting for bars";
          g_smcJson2 = "\"symbol\":\"" + JsonEsc(symbol) + "\",\"bias\":\"flat\"";
         }
@@ -764,23 +1136,34 @@ void RefreshSmcSymbol(const string symbol, const int which, const bool force)
    DetectFvg(bars, fvgs);
    DetectOrderBlocks(bars, events, obs);
    int bias = InferBias(bars, events);
+   TradeSetup setup;
+   EvaluateSetup(bars, bias, events, sweeps, fvgs, obs, setup);
 
    string chat = BuildChat(symbol, bars, bias, events, sweeps, fvgs, obs);
+   chat += "  SETUP: " + (setup.valid ? ("YES " + DirName(setup.direction) + " " + setup.why)
+                                     : ("no (" + setup.why + ")")) + "\n";
    string js = BuildSmcJson(symbol, bars, bias, events, sweeps, fvgs, obs);
+   js += StringFormat(",\"setup\":%s,\"setup_dir\":\"%s\",\"setup_why\":\"%s\",\"confluence\":%d",
+                      (setup.valid ? "true" : "false"), DirName(setup.direction),
+                      setup.why, setup.confluence);
    if(which == 1)
      {
+      g_setup1 = setup;
       g_chat1 = chat;
       g_smcJson1 = js;
-      MaybeLogNew(symbol, events, sweeps, g_loggedEvt1, g_loggedSwp1);
+      if(is_new)
+         MaybeLogNew(symbol, events, sweeps, g_loggedEvt1, g_loggedSwp1);
      }
    else
      {
+      g_setup2 = setup;
       g_chat2 = chat;
       g_smcJson2 = js;
-      MaybeLogNew(symbol, events, sweeps, g_loggedEvt2, g_loggedSwp2);
+      if(is_new)
+         MaybeLogNew(symbol, events, sweeps, g_loggedEvt2, g_loggedSwp2);
      }
 
-   if(InpDrawSmcObjects && symbol == _Symbol)
+   if((is_new || force) && InpDrawSmcObjects && symbol == _Symbol)
       DrawSmc(_Symbol, bars, events, sweeps, fvgs, obs, equals);
   }
 
@@ -1399,15 +1782,16 @@ void UpdateChat()
      }
    string py = PythonFresh() ? "FRESH" : "LOST";
    string pos = IntegerToString(CountOurPositions(g_sym1) + CountOurPositions(g_sym2));
-   string txt = "Python ML SMC Bridge  3.02\n";
+   string txt = "Python ML SMC Bridge  3.03\n";
    txt += "Symbols: " + (g_sym1 != "" ? g_sym1 : "-") + "  |  " + (g_sym2 != "" ? g_sym2 : "-") + "\n";
    txt += "Python: " + py + "   positions: " + pos + "   last: " + g_lastError + "\n";
+   txt += "TRADE: " + g_pickStatus + "\n";
    txt += "--------------------------------\n";
    txt += (g_chat1 != "" ? g_chat1 : "V75: waiting\n");
    txt += "--------------------------------\n";
    txt += (g_chat2 != "" ? g_chat2 : "V50 (1s): waiting\n");
    txt += "Overlay: Liquidity sweep | Equal-liquidity sweep extra | Order Block | FVG | BOS | CHoCH | MSS\n";
-   txt += "Python still decides BUY/SELL. This panel is display-only.";
+   txt += "Picks a trade only when both pairs have the same-direction SMC setup.";
    Comment(txt);
   }
 
@@ -1634,8 +2018,8 @@ void WriteStatusRaw(const string extra)
    string smc1 = (g_smcJson1 != "" ? g_smcJson1 : "\"symbol\":\"\",\"bias\":\"FLAT\"");
    string smc2 = (g_smcJson2 != "" ? g_smcJson2 : "\"symbol\":\"\",\"bias\":\"FLAT\"");
    string json = StringFormat(
-      "{%s\"connected\":true,\"python_fresh\":%s,\"trail_on\":%s,\"v75\":{%s},\"v50_1s\":{%s},\"smc_v75\":{%s},\"smc_v50_1s\":{%s},\"last_command_id\":\"%s\",\"retcode\":%d,\"error\":\"%s\",\"time\":\"%s\"}",
-      extra, python_ok, trail_ok, PosJson(g_sym1), PosJson(g_sym2), smc1, smc2,
+      "{%s\"connected\":true,\"python_fresh\":%s,\"trail_on\":%s,\"pick\":\"%s\",\"v75\":{%s},\"v50_1s\":{%s},\"smc_v75\":{%s},\"smc_v50_1s\":{%s},\"last_command_id\":\"%s\",\"retcode\":%d,\"error\":\"%s\",\"time\":\"%s\"}",
+      extra, python_ok, trail_ok, g_pickStatus, PosJson(g_sym1), PosJson(g_sym2), smc1, smc2,
       g_lastId, g_lastRetcode, g_lastError, TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS));
    AtomicWrite(InpFolder + "\\status.json", json);
   }

@@ -1,6 +1,7 @@
-"""SMC overlay rules used by PythonML_SMC_Bridge.mq5 (display only).
+"""SMC overlay and dual-pair setup rules used by PythonML_SMC_Bridge.mq5.
 
-These detectors match the Expert Advisor. They never produce BUY/SELL.
+Detectors match the Expert Advisor. The EA picks BUY/SELL only when both
+Volatility 75 Index and Volatility 50 (1s) Index print an aligned setup.
 """
 
 from __future__ import annotations
@@ -91,6 +92,18 @@ class Snapshot:
             if not zone.mitigated:
                 return zone
         return None
+
+
+@dataclass
+class Setup:
+    valid: bool = False
+    direction: int = DIR_NONE
+    sl: float = 0.0
+    tp: float = 0.0
+    confluence: int = 0
+    zone_kind: int = 0
+    eq_extra: bool = False
+    why: str = ""
 
 
 def _max_of(values: list[float], start: int, end_exclusive: int) -> float:
@@ -425,6 +438,145 @@ def dir_name(direction: int) -> str:
 
 def zone_name(kind: int) -> str:
     return "FVG" if kind == ZONE_FVG else "Order Block"
+
+
+def _recent(index: int, last: int, lookback: int) -> bool:
+    return 0 <= last - index <= lookback
+
+
+def _price_in_zone(bar_low: float, bar_high: float, zone: Zone) -> bool:
+    return bar_low <= zone.high and bar_high >= zone.low
+
+
+def build_setup(
+    open_: list[float],
+    high: list[float],
+    low: list[float],
+    close: list[float],
+    snap: Snapshot | None = None,
+    recent_bars: int = 40,
+    rr: float = 2.0,
+    require_sweep: bool = True,
+    min_confluence: int = 4,
+    sl_atr_mult: float = 0.05,
+) -> Setup:
+    """Valid setup: bias + recent structure + sweep + OB/FVG tap."""
+    snap = snap or analyze(open_, high, low, close)
+    last = len(close) - 1
+    out = Setup(direction=snap.bias)
+    if last < 0 or snap.bias == DIR_NONE:
+        out.why = "no_bias"
+        return out
+
+    score = 1
+    reasons = ["bias"]
+    recent_struct = [
+        e for e in snap.events if e.direction == snap.bias and _recent(e.index, last, recent_bars)
+    ]
+    if any(e.kind == KIND_BOS for e in recent_struct):
+        score += 1
+        reasons.append("BOS")
+    if any(e.kind in (KIND_CHOCH, KIND_MSS) for e in recent_struct):
+        score += 1
+        reasons.append("CHoCH/MSS")
+    elif recent_struct and "BOS" not in reasons:
+        score += 1
+        reasons.append("structure")
+
+    recent_sweeps = [
+        s for s in snap.sweeps if s.direction == snap.bias and _recent(s.index, last, recent_bars)
+    ]
+    if not recent_sweeps and require_sweep:
+        out.confluence = score
+        out.why = "no_sweep"
+        return out
+    if recent_sweeps:
+        score += 1
+        reasons.append("sweep")
+        if any(s.equal_extra for s in recent_sweeps):
+            score += 1
+            reasons.append("eq_sweep_extra")
+            out.eq_extra = True
+
+    zones = [
+        z
+        for z in (*snap.fvgs, *snap.obs)
+        if (not z.mitigated) and z.direction == snap.bias
+    ]
+    tapped = [z for z in zones if _price_in_zone(low[last], high[last], z)]
+    if not tapped:
+        out.confluence = score
+        out.why = "no_zone_tap"
+        return out
+    score += 1
+    px = close[last]
+    zone = min(
+        tapped,
+        key=lambda z: min(abs(px - z.low), abs(px - z.high), abs(px - (z.low + z.high) / 2.0)),
+    )
+    out.zone_kind = zone.kind
+    reasons.append("OB" if zone.kind == ZONE_OB else "FVG")
+
+    buf = atr(high, low, close) * sl_atr_mult
+    sweep = recent_sweeps[-1] if recent_sweeps else None
+    if snap.bias == DIR_BULL:
+        sl = zone.low
+        if sweep is not None:
+            sl = min(sl, sweep.wick)
+        sl -= buf
+        risk = px - sl
+        if risk <= 0:
+            out.why = "bad_sl"
+            return out
+        tp = px + rr * risk
+    else:
+        sl = zone.high
+        if sweep is not None:
+            sl = max(sl, sweep.wick)
+        sl += buf
+        risk = sl - px
+        if risk <= 0:
+            out.why = "bad_sl"
+            return out
+        tp = px - rr * risk
+
+    out.confluence = score
+    out.sl = sl
+    out.tp = tp
+    if score < min_confluence:
+        out.why = f"confluence_{score}"
+        return out
+    out.valid = True
+    out.why = "+".join(reasons)
+    return out
+
+
+def pick_dual_pair_trades(
+    setup1: Setup,
+    setup2: Setup,
+    require_both: bool = True,
+) -> tuple[bool, bool, int, str]:
+    """Pick trades only when both pairs print the same-direction SMC setup."""
+    if require_both:
+        if not setup1.valid and not setup2.valid:
+            return False, False, DIR_NONE, "waiting for setup on both pairs"
+        if not setup1.valid:
+            return False, False, DIR_NONE, "waiting for Volatility 75 setup"
+        if not setup2.valid:
+            return False, False, DIR_NONE, "waiting for Volatility 50 (1s) setup"
+        if setup1.direction != setup2.direction:
+            return False, False, DIR_NONE, "pairs not aligned"
+        side = "BUY" if setup1.direction == DIR_BULL else "SELL"
+        return True, True, setup1.direction, f"PICK {side} on both pairs"
+    trade1 = setup1.valid
+    trade2 = setup2.valid
+    direction = setup1.direction if trade1 else setup2.direction if trade2 else DIR_NONE
+    if trade1 and trade2 and setup1.direction != setup2.direction:
+        return False, False, DIR_NONE, "pairs not aligned"
+    if trade1 or trade2:
+        side = "BUY" if direction == DIR_BULL else "SELL"
+        return trade1, trade2, direction, f"PICK {side}"
+    return False, False, DIR_NONE, "no setup"
 
 
 def chat_lines(symbol: str, snap: Snapshot) -> list[str]:
