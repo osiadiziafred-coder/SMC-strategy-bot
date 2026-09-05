@@ -278,12 +278,21 @@ def triple_barrier_labels(
 
 
 def setup_masks(base: pd.DataFrame, cfg: Config) -> tuple[pd.Series, pd.Series]:
-    """Loose training masks: regime aligned, not extended, near a moving average."""
+    """Vectorised BUY/SELL setup masks — same rules as :func:`live_setup_flags`."""
 
-    near = base["m5_near_ma"] <= max(cfg.near_ma_atr, 1.5)
-    strength = base["m15_trend_strength"] >= min(cfg.min_trend_strength, 0.08)
-    bull = (base["m15_trend"] > 0) & (base["m5_ema50_dist"] > -0.5) & near & strength
-    bear = (base["m15_trend"] < 0) & (base["m5_ema50_dist"] < 0.5) & near & strength
+    m15_bull = (base["m15_trend"] > 0) & (base["m15_trend_strength"] >= cfg.min_trend_strength)
+    m15_bear = (base["m15_trend"] < 0) & (base["m15_trend_strength"] >= cfg.min_trend_strength)
+    near = base["m5_near_ma"] <= cfg.near_ma_atr
+    depth = base["m5_pullback_depth"]
+    pullback_buy = (depth >= cfg.pullback_atr_min) & (depth <= cfg.pullback_atr_max)
+    pullback_sell = (-depth >= cfg.pullback_atr_min) & (-depth <= cfg.pullback_atr_max)
+    mom_up = (base["m5_momentum_slope"] > 0) | (base["m5_rsi_slope"] > 0)
+    mom_down = (base["m5_momentum_slope"] < 0) | (base["m5_rsi_slope"] < 0)
+    bull = m15_bull & pullback_buy & near & mom_up
+    bear = m15_bear & pullback_sell & near & mom_down
+    if cfg.require_m1_confirm:
+        bull = bull & ((base["m1_momentum"] > 0) | (base["m1_body"] > 0))
+        bear = bear & ((base["m1_momentum"] < 0) | (base["m1_body"] < 0))
     return bull.fillna(False), bear.fillna(False)
 
 
@@ -345,13 +354,12 @@ def build_training_dataset(
     bull_mask, bear_mask = setup_masks(base, cfg)
 
     # --- 3-class direction / selection labels --------------------------------
+    # BUY/SELL mean "this bar is a directional setup", not "the next candle".
+    # Whether the setup is worth taking is the outcome model's job (TP before SL).
     y_dir = np.full(len(base), np.nan)
-    buy_win = (y_buy == 1) & bull_mask
-    sell_win = (y_sell == 1) & bear_mask
-    both = buy_win & sell_win
-    y_dir[buy_win.to_numpy() & ~both.to_numpy()] = CLASS_BUY
-    y_dir[sell_win.to_numpy() & ~both.to_numpy()] = CLASS_SELL
-    # If both sides would have won, pick the side with stronger regime alignment.
+    both = bull_mask & bear_mask
+    y_dir[bull_mask.to_numpy() & ~both.to_numpy()] = CLASS_BUY
+    y_dir[bear_mask.to_numpy() & ~both.to_numpy()] = CLASS_SELL
     if both.any():
         pick_buy = base.loc[both, "m15_trend"] >= 0
         y_dir[both.to_numpy()] = np.where(pick_buy.to_numpy(), CLASS_BUY, CLASS_SELL)

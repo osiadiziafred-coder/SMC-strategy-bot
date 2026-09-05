@@ -240,10 +240,10 @@ class Config:
     digits: int = 2
 
     # --- Technical filter tightness --------------------------------------
-    pullback_atr_min: float = 0.25  # min retracement depth (ATR)
-    pullback_atr_max: float = 2.0
-    near_ma_atr: float = 0.90       # price near EMA/VWAP
-    min_trend_strength: float = 0.15
+    pullback_atr_min: float = 0.20  # min retracement depth (ATR)
+    pullback_atr_max: float = 2.2
+    near_ma_atr: float = 1.15       # price near EMA/VWAP
+    min_trend_strength: float = 0.12
 
     # --- Bridge / heartbeat ----------------------------------------------
     bridge_dir: Path = field(default_factory=lambda: DEFAULT_BRIDGE_DIR)
