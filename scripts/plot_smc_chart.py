@@ -100,7 +100,7 @@ def main() -> int:
     plt.close(fig)
     chat_path = out.with_name("smc_chart_chat_panel.txt")
     chat_path.write_text(
-        "Python ML SMC Bridge  3.03\n"
+        "Python ML SMC Bridge  3.04  PRO SKILL 85+\n"
         "Symbols: Volatility 75 Index  |  Volatility 50 (1s) Index\n"
         f"TRADE: {pick}\n"
         "--------------------------------\n"

@@ -45,7 +45,7 @@ def _ohlc_from_closes(closes: list[float], wick: float = 1.0) -> tuple[list[floa
 
 def test_ea_file_exists_and_is_bridge() -> None:
     text = EA_PATH.read_text(encoding="utf-8")
-    assert "#property version   \"3.03\"" in text
+    assert "#property version   \"3.04\"" in text
     assert "InpRequireBothPairs" in text
     assert "PICK " in text
     assert "MaybeAutoTrade" in text
@@ -202,7 +202,7 @@ def test_chat_lines_list_every_requested_concept() -> None:
     assert "Volatility 75 Index" in lines
 
 
-def _forced_setup(direction: int, *, valid: bool = True) -> Setup:
+def _forced_setup(direction: int, *, valid: bool = True, skill: int = 90) -> Setup:
     return Setup(
         valid=valid,
         direction=direction,
@@ -212,6 +212,8 @@ def _forced_setup(direction: int, *, valid: bool = True) -> Setup:
         zone_kind=ZONE_FVG,
         eq_extra=True,
         why="bias+BOS+sweep+eq_sweep_extra+FVG",
+        skill=skill,
+        missing="" if valid else "sweep",
     )
 
 
@@ -265,12 +267,12 @@ def test_pick_trade_only_when_both_pairs_align() -> None:
     t1, t2, direction, status = pick_dual_pair_trades(bull, bull, require_both=True)
     assert t1 and t2
     assert direction == DIR_BULL
-    assert status == "PICK BUY on both pairs"
+    assert status == "PICK BUY on both pairs  SKILL 90/100"
 
     t1, t2, direction, status = pick_dual_pair_trades(bear, bear, require_both=True)
     assert t1 and t2
     assert direction == DIR_BEAR
-    assert status == "PICK SELL on both pairs"
+    assert status == "PICK SELL on both pairs  SKILL 90/100"
 
     t1, t2, direction, status = pick_dual_pair_trades(bull, none, require_both=True)
     assert not t1 and not t2
@@ -286,5 +288,144 @@ def test_ea_auto_trade_requires_both_pairs() -> None:
     text = EA_PATH.read_text(encoding="utf-8")
     assert "InpRequireBothPairs   = true" in text
     assert "waiting for setup on both pairs" in text
-    assert "PICK BUY on both pairs" in text or 'PICK " + (direction == DIR_BULL ? "BUY" : "SELL") + " on both pairs' in text
+    assert "on both pairs  SKILL" in text
     assert "SMC-SETUP" in text
+    assert "InpMinSkillScore     = 85" in text
+    assert "InpProSkill          = true" in text
+    assert "InpRiskPercent" in text
+    assert "daily_loss_cap" in text
+    assert "need_choch_after_sweep" in text
+    assert "need_premium_discount" in text
+    assert "htf_mismatch" in text
+    assert "SKILL:" in text
+
+
+def test_pro_skill_rejects_buy_in_premium() -> None:
+    from smc_overlay import build_setup, DIR_BULL, KIND_CHOCH, KIND_MSS, ZONE_FVG, Event, Snapshot, Sweep, Zone
+
+    n = 80
+    opens = [110.0] * n
+    highs = [112.0] * n
+    lows = [100.0] * n
+    closes = [111.5] * n
+    highs[-1], lows[-1], closes[-1] = 111.8, 111.0, 111.5
+    opens[50], closes[50], highs[50] = 108.0, 111.6, 111.9
+    lows[50] = 107.8
+    snap = Snapshot(
+        bias=DIR_BULL,
+        events=[
+            Event(index=50, kind=KIND_CHOCH, direction=DIR_BULL, broken=110.0),
+            Event(index=55, kind=KIND_MSS, direction=DIR_BULL, broken=110.0),
+        ],
+        sweeps=[
+            Sweep(index=40, direction=DIR_BULL, swept_price=100.5, wick=99.8, equal_extra=True, members=2)
+        ],
+        fvgs=[Zone(60, 62, 110.8, 111.9, DIR_BULL, ZONE_FVG, False)],
+    )
+    setup = build_setup(
+        opens, highs, lows, closes, snap=snap, pro_mode=True, htf_bias=DIR_BULL, min_er=0.0
+    )
+    assert not setup.valid
+    assert setup.why == "need_premium_discount"
+
+
+def test_pro_skill_passes_a_plus_discount_buy() -> None:
+    from smc_overlay import (
+        DIR_BULL,
+        KIND_CHOCH,
+        KIND_MSS,
+        ZONE_FVG,
+        Event,
+        Snapshot,
+        Sweep,
+        Zone,
+        build_setup,
+        skill_chat_line,
+        skill_score,
+        MIN_SKILL_SCORE,
+    )
+
+    n = 80
+    opens = [100.0] * n
+    highs = [110.0] * n
+    lows = [90.0] * n
+    closes = [94.0] * n
+    for i in range(1, n):
+        opens[i] = closes[i - 1]
+        closes[i] = 100.0 - i * 0.08
+        highs[i] = max(opens[i], closes[i]) + 0.2
+        lows[i] = min(opens[i], closes[i]) - 0.2
+    # Strong down then bullish displacement CHoCH after SSL sweep, tap FVG in discount.
+    closes[-1] = 93.2
+    opens[-1] = 92.0
+    highs[-1] = 93.5
+    lows[-1] = 91.8
+    snap = Snapshot(
+        bias=DIR_BULL,
+        events=[
+            Event(index=n - 8, kind=KIND_CHOCH, direction=DIR_BULL, broken=94.0),
+            Event(index=n - 8, kind=KIND_MSS, direction=DIR_BULL, broken=94.0),
+        ],
+        sweeps=[
+            Sweep(
+                index=n - 20,
+                direction=DIR_BULL,
+                swept_price=91.5,
+                wick=90.8,
+                equal_extra=True,
+                members=2,
+            )
+        ],
+        fvgs=[Zone(n - 6, n - 4, 92.5, 93.8, DIR_BULL, ZONE_FVG, False)],
+    )
+    # Make displacement on choch bar
+    opens[n - 8] = 92.0
+    closes[n - 8] = 96.0
+    highs[n - 8] = 96.2
+    lows[n - 8] = 91.9
+    setup = build_setup(
+        opens, highs, lows, closes, snap=snap, pro_mode=True, htf_bias=DIR_BULL, min_er=0.05
+    )
+    assert setup.skill >= MIN_SKILL_SCORE
+    assert setup.valid
+    assert "SKILL:" in skill_chat_line(setup)
+    score, missing = skill_score(
+        has_sweep=True,
+        eq_extra=True,
+        choch_after=True,
+        displacement=True,
+        zone_tap=True,
+        pd_aligned=True,
+        htf_aligned=True,
+        trending=True,
+    )
+    assert score == 100
+    assert missing == ""
+
+
+def test_skill_85_fails_without_choch_after_sweep() -> None:
+    from smc_overlay import skill_score
+
+    score, missing = skill_score(
+        has_sweep=True,
+        eq_extra=True,
+        choch_after=False,
+        displacement=True,
+        zone_tap=True,
+        pd_aligned=True,
+        htf_aligned=True,
+        trending=True,
+    )
+    assert score == 80
+    assert "choch_after_sweep" in missing
+    assert score < 85
+
+
+def test_lots_from_risk_and_daily_guard() -> None:
+    from smc_overlay import lots_from_risk, daily_guard
+
+    lots = lots_from_risk(1000.0, 1.0, sl_distance=10.0, tick_size=0.01, tick_value=0.01, volume_min=0.01, volume_max=5.0, volume_step=0.01)
+    assert lots > 0
+    assert daily_guard(1000.0, 960.0, 3.0, 0, 4) == "daily_loss_cap"
+    assert daily_guard(1000.0, 990.0, 3.0, 4, 4) == "max_trades_today"
+    assert daily_guard(1000.0, 990.0, 3.0, 1, 4) == ""

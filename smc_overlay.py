@@ -94,6 +94,19 @@ class Snapshot:
         return None
 
 
+# A+ SMC skill score. 85+ is the trade gate in pro mode.
+SKILL_SWEEP = 15
+SKILL_EQ_EXTRA = 10
+SKILL_CHOCH_AFTER = 20
+SKILL_DISPLACE = 10
+SKILL_ZONE = 15
+SKILL_PD = 10
+SKILL_HTF = 15
+SKILL_ER = 5
+SKILL_TOTAL = 100
+MIN_SKILL_SCORE = 85
+
+
 @dataclass
 class Setup:
     valid: bool = False
@@ -104,6 +117,11 @@ class Setup:
     zone_kind: int = 0
     eq_extra: bool = False
     why: str = ""
+    skill: int = 0
+    missing: str = ""
+    pd: float = 0.5
+    er: float = 0.0
+    htf_ok: bool = False
 
 
 def _max_of(values: list[float], start: int, end_exclusive: int) -> float:
@@ -448,6 +466,153 @@ def _price_in_zone(bar_low: float, bar_high: float, zone: Zone) -> bool:
     return bar_low <= zone.high and bar_high >= zone.low
 
 
+def efficiency_ratio(close: list[float], period: int = 20) -> float:
+    """0 = chop, 1 = efficient trend. Skip trades in chop."""
+    if len(close) < period + 1 or period <= 0:
+        return 0.0
+    net = abs(close[-1] - close[-1 - period])
+    path = 0.0
+    for i in range(len(close) - period, len(close)):
+        path += abs(close[i] - close[i - 1])
+    if path <= 1e-12:
+        return 0.0
+    return net / path
+
+
+def pd_ratio(high: list[float], low: list[float], close: list[float], lookback: int = 40) -> float:
+    """0 = discount extreme, 1 = premium extreme."""
+    last = len(close) - 1
+    if last < 0:
+        return 0.5
+    start = max(0, last - lookback)
+    hh = max(high[start : last + 1])
+    ll = min(low[start : last + 1])
+    if hh - ll <= 1e-12:
+        return 0.5
+    return (close[last] - ll) / (hh - ll)
+
+
+def pd_ok(direction: int, ratio: float, buy_max: float = 0.45, sell_min: float = 0.55) -> bool:
+    if direction == DIR_BULL:
+        return ratio <= buy_max
+    if direction == DIR_BEAR:
+        return ratio >= sell_min
+    return False
+
+
+def choch_after_sweep(
+    events: list[Event],
+    sweeps: list[Sweep],
+    bias: int,
+    last: int,
+    recent_bars: int,
+) -> tuple[bool, Sweep | None, Event | None]:
+    """ICT sequence: raid liquidity first, then CHoCH/MSS."""
+    recent_sweeps = [
+        s for s in sweeps if s.direction == bias and _recent(s.index, last, recent_bars)
+    ]
+    if not recent_sweeps:
+        return False, None, None
+    sweep = recent_sweeps[-1]
+    for event in events:
+        if event.direction != bias:
+            continue
+        if event.kind not in (KIND_CHOCH, KIND_MSS):
+            continue
+        if event.index > sweep.index and _recent(event.index, last, recent_bars):
+            return True, sweep, event
+    return False, sweep, None
+
+
+def lots_from_risk(
+    balance: float,
+    risk_percent: float,
+    sl_distance: float,
+    tick_size: float,
+    tick_value: float,
+    volume_min: float,
+    volume_max: float,
+    volume_step: float,
+) -> float:
+    """Balance * risk% / stop distance. Never below broker min if that exceeds risk."""
+    if sl_distance <= 0 or tick_size <= 0 or tick_value <= 0 or volume_step <= 0:
+        return 0.0
+    risk_money = balance * (risk_percent / 100.0)
+    ticks = sl_distance / tick_size
+    if ticks <= 0:
+        return 0.0
+    lots = risk_money / (ticks * tick_value)
+    steps = int(lots / volume_step + 1e-12)
+    lots = steps * volume_step
+    lots = max(volume_min, min(volume_max, lots))
+    return round(lots, 4)
+
+
+def daily_guard(
+    start_equity: float,
+    equity: float,
+    max_loss_percent: float,
+    trades_today: int,
+    max_trades: int,
+) -> str:
+    """Empty string = ok. Otherwise the block reason."""
+    if max_trades > 0 and trades_today >= max_trades:
+        return "max_trades_today"
+    if start_equity > 0 and max_loss_percent > 0:
+        loss_pct = 100.0 * (start_equity - equity) / start_equity
+        if loss_pct >= max_loss_percent:
+            return "daily_loss_cap"
+    return ""
+
+
+def skill_score(
+    *,
+    has_sweep: bool,
+    eq_extra: bool,
+    choch_after: bool,
+    displacement: bool,
+    zone_tap: bool,
+    pd_aligned: bool,
+    htf_aligned: bool,
+    trending: bool,
+) -> tuple[int, str]:
+    score = 0
+    missing: list[str] = []
+    if has_sweep:
+        score += SKILL_SWEEP
+    else:
+        missing.append("sweep")
+    if eq_extra:
+        score += SKILL_EQ_EXTRA
+    else:
+        missing.append("eq_extra")
+    if choch_after:
+        score += SKILL_CHOCH_AFTER
+    else:
+        missing.append("choch_after_sweep")
+    if displacement:
+        score += SKILL_DISPLACE
+    else:
+        missing.append("displacement")
+    if zone_tap:
+        score += SKILL_ZONE
+    else:
+        missing.append("ob_fvg_tap")
+    if pd_aligned:
+        score += SKILL_PD
+    else:
+        missing.append("premium_discount")
+    if htf_aligned:
+        score += SKILL_HTF
+    else:
+        missing.append("htf_bias")
+    if trending:
+        score += SKILL_ER
+    else:
+        missing.append("chop")
+    return score, ",".join(missing)
+
+
 def build_setup(
     open_: list[float],
     high: list[float],
@@ -459,13 +624,24 @@ def build_setup(
     require_sweep: bool = True,
     min_confluence: int = 4,
     sl_atr_mult: float = 0.05,
+    pro_mode: bool = False,
+    min_skill: int = MIN_SKILL_SCORE,
+    htf_bias: int | None = None,
+    min_er: float = 0.28,
+    pd_buy_max: float = 0.45,
+    pd_sell_min: float = 0.55,
 ) -> Setup:
-    """Valid setup: bias + recent structure + sweep + OB/FVG tap."""
+    """Valid setup: bias + recent structure + sweep + OB/FVG tap.
+
+    Pro mode adds the 85-skill checklist: HTF bias, premium/discount,
+    sweep then CHoCH/MSS, displacement, and trend (not chop).
+    """
     snap = snap or analyze(open_, high, low, close)
     last = len(close) - 1
     out = Setup(direction=snap.bias)
     if last < 0 or snap.bias == DIR_NONE:
         out.why = "no_bias"
+        out.missing = "bias"
         return out
 
     score = 1
@@ -543,11 +719,54 @@ def build_setup(
     out.confluence = score
     out.sl = sl
     out.tp = tp
+
+    seq_ok, _, choch_evt = choch_after_sweep(snap.events, snap.sweeps, snap.bias, last, recent_bars)
+    displace = False
+    if choch_evt is not None and 0 <= choch_evt.index < len(close):
+        displace = _is_displacement(open_, close, choch_evt.index)
+    out.pd = pd_ratio(high, low, close, recent_bars)
+    pd_aligned = pd_ok(snap.bias, out.pd, pd_buy_max, pd_sell_min)
+    out.er = efficiency_ratio(close)
+    trending = out.er >= min_er
+    if htf_bias is None:
+        out.htf_ok = not pro_mode
+    else:
+        out.htf_ok = htf_bias == snap.bias
+    out.skill, out.missing = skill_score(
+        has_sweep=bool(recent_sweeps),
+        eq_extra=out.eq_extra,
+        choch_after=seq_ok,
+        displacement=displace,
+        zone_tap=True,
+        pd_aligned=pd_aligned,
+        htf_aligned=out.htf_ok,
+        trending=trending,
+    )
+
     if score < min_confluence:
         out.why = f"confluence_{score}"
         return out
+    if pro_mode:
+        if not seq_ok:
+            out.why = "need_choch_after_sweep"
+            return out
+        if not displace:
+            out.why = "need_displacement"
+            return out
+        if not pd_aligned:
+            out.why = "need_premium_discount"
+            return out
+        if htf_bias is not None and not out.htf_ok:
+            out.why = "htf_mismatch"
+            return out
+        if not trending:
+            out.why = "chop"
+            return out
+        if out.skill < min_skill:
+            out.why = f"skill_{out.skill}"
+            return out
     out.valid = True
-    out.why = "+".join(reasons)
+    out.why = "+".join(reasons) + f"+skill{out.skill}"
     return out
 
 
@@ -567,7 +786,8 @@ def pick_dual_pair_trades(
         if setup1.direction != setup2.direction:
             return False, False, DIR_NONE, "pairs not aligned"
         side = "BUY" if setup1.direction == DIR_BULL else "SELL"
-        return True, True, setup1.direction, f"PICK {side} on both pairs"
+        skill = min(setup1.skill, setup2.skill)
+        return True, True, setup1.direction, f"PICK {side} on both pairs  SKILL {skill}/100"
     trade1 = setup1.valid
     trade2 = setup2.valid
     direction = setup1.direction if trade1 else setup2.direction if trade2 else DIR_NONE
@@ -613,6 +833,12 @@ def chat_lines(symbol: str, snap: Snapshot) -> list[str]:
     else:
         lines.append(f"  FVG: {dir_name(fvg.direction)} {fvg.low:.5f}-{fvg.high:.5f}")
     return lines
+
+
+def skill_chat_line(setup: Setup) -> str:
+    tag = "PASS" if setup.valid else "WAIT"
+    miss = setup.missing if setup.missing else "none"
+    return f"  SKILL: {setup.skill}/100 {tag}  missing {miss}"
 
 
 V75_ALIASES = (
