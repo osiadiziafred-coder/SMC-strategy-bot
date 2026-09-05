@@ -77,12 +77,12 @@ def main() -> int:
 
     fig, (ax_p, ax_ml) = plt.subplots(2, 1, figsize=(14, 9), gridspec_kw={"height_ratios": [2, 1]})
 
-    ax_p.plot(x, close, color="#1f77b4", lw=0.9, label="XAUUSDm M15 close")
+    ax_p.plot(x, close, color="#1f77b4", lw=0.9, label=f"{cfg.symbol} M15 close")
     ax_p.scatter(x[bg], close[bg], marker="^", color="#2ca02c", s=70, zorder=5,
                  label=f"BUY command ({int(bg.sum())})")
     ax_p.scatter(x[sg], close[sg], marker="v", color="#d62728", s=70, zorder=5,
                  label=f"SELL command ({int(sg.sum())})")
-    ax_p.set_title("ML/SMC robot decisions on XAUUSDm (offline synthetic feed)")
+    ax_p.set_title(f"ML/SMC robot decisions on {cfg.symbol} (offline synthetic feed)")
     ax_p.set_ylabel("Price")
     ax_p.legend(loc="upper left")
     ax_p.grid(alpha=0.2)

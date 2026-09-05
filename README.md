@@ -2,9 +2,10 @@
 
 This repository contains two related Smart Money Concepts (SMC) projects:
 
-- **`ml_smc_robot/`** — a full **ML + SMC trading robot for XAUUSDm** that connects
-  to MetaTrader 5, runs a trained machine-learning model over multi-timeframe SMC
-  features, and drives an MQL5 safety-bridge EA. See
+- **`ml_smc_robot/`** — a full **ML + SMC trading robot for the Volatility 75 Index**
+  (XAUUSDm also supported) that connects to MetaTrader 5, runs a trained
+  machine-learning model over multi-timeframe SMC features, and drives an MQL5
+  safety-bridge EA. See
   [`ml_smc_robot/README.md`](ml_smc_robot/README.md).
 - **`src/smc_bot/`** — the standalone SMC backtesting bot documented below.
 

@@ -74,6 +74,7 @@ class SMCState:
     mss: int = 0                   # +1/-1 market structure shift (with displacement)
     choch: int = 0                 # +1/-1 change of character
     liquidity_sweep: int = 0       # +1 bullish sweep (swept lows), -1 bearish
+    equal_liquidity_sweep: int = 0 # +1 swept equal lows, -1 swept equal highs
     displacement: float = 0.0      # last candle body / ATR
     atr: float = 0.0
     volatility: float = 0.0
@@ -96,6 +97,7 @@ class SMCState:
             "mss": self.mss,
             "choch": self.choch,
             "sweep": self.liquidity_sweep,
+            "equal_liquidity_sweep": self.equal_liquidity_sweep,
             "premium_discount": round(self.premium_discount, 3),
             "atr": round(self.atr, 3),
         }
@@ -224,6 +226,40 @@ def liquidity_sweep_series(df: pd.DataFrame, lookback: int = 20) -> pd.Series:
     out[bull] = 1
     out[bear] = -1
     return out
+
+
+def equal_liquidity_sweep_series(df: pd.DataFrame, lookback: int = 30, tol_frac: float = 0.0006) -> pd.Series:
+    """Sweep of *equal* highs/lows (a resting liquidity pool).
+
+    Equal highs/lows (two or more prior extremes at the same price within a
+    tolerance) attract liquidity. A sweep occurs when price runs through that
+    equal level and then closes back on the other side:
+
+    * -1 bearish equal-liquidity sweep: equal highs are taken out then price
+      closes back below (buy-side liquidity grabbed).
+    * +1 bullish equal-liquidity sweep: equal lows are taken out then price
+      closes back above (sell-side liquidity grabbed).
+
+    Computed causally: bar ``i`` only inspects the ``lookback`` bars before it.
+    """
+
+    highs = df["high"].to_numpy()
+    lows = df["low"].to_numpy()
+    closes = df["close"].to_numpy()
+    n = len(df)
+    out = np.zeros(n, dtype=int)
+    for i in range(lookback, n):
+        wh = highs[i - lookback:i]
+        wl = lows[i - lookback:i]
+        hi_level = wh.max()
+        lo_level = wl.min()
+        eq_high = np.sum(np.abs(wh - hi_level) <= hi_level * tol_frac) >= 2
+        eq_low = np.sum(np.abs(wl - lo_level) <= lo_level * tol_frac) >= 2
+        if eq_high and highs[i] > hi_level and closes[i] < hi_level:
+            out[i] = -1
+        elif eq_low and lows[i] < lo_level and closes[i] > lo_level:
+            out[i] = 1
+    return pd.Series(out, index=df.index)
 
 
 def fvg_bullish_size(df: pd.DataFrame) -> pd.Series:
@@ -379,6 +415,7 @@ def analyze(df: pd.DataFrame, atr_period: int = 14, swing_lookback: int = 20) ->
         mss=int(mss_series(df, swing_lookback).iloc[-1]),
         choch=int(choch_series(df, swing_lookback).iloc[-1]),
         liquidity_sweep=int(liquidity_sweep_series(df, swing_lookback).iloc[-1]),
+        equal_liquidity_sweep=int(equal_liquidity_sweep_series(df).iloc[-1]),
         displacement=float(displacement_series(df, atr_period).iloc[-1]),
         atr=atr,
         volatility=float(volatility_series(df).iloc[-1]),

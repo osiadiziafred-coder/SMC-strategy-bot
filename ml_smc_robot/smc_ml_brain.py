@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from .config import Config
 from .command_manager import CommandManager
 from .features import build_live_features
-from .logging_utils import format_decision_line, format_explanation, setup_logger
+from .logging_utils import format_decision_line, format_explanation, format_smc_report, setup_logger
 from .ml_model import MLModel
 from .mt5_connector import SyntheticConnector, make_connector
 from .risk_manager import RiskManager
@@ -135,7 +135,7 @@ class SMCBrain:
         self.log.info(
             format_decision_line(
                 cfg.symbol, h1.bias.value, m30.bias.value, m15_setup,
-                m15.bos, m15.mss, m15.choch, m15.liquidity_sweep,
+                m15.bos, m15.mss, m15.choch, m15.liquidity_sweep, m15.equal_liquidity_sweep,
                 ob_present, fvg_present, buy_prob, sell_prob, decision.action,
             )
         )
@@ -211,6 +211,41 @@ class SMCBrain:
             return "BOS_BEARISH"
         return "NONE"
 
+    # -- SMC readout -------------------------------------------------------
+    def analyze_report(self) -> str:
+        """Build a full multi-timeframe SMC readout and log it.
+
+        Brings out Liquidity sweep, Equal-liquidity sweep, Order Block, FVG,
+        BOS, CHoCH and MSS across H1/M30/M15 plus the ML probabilities.
+        """
+
+        cfg = self.cfg
+        h1_df = self.connector.get_rates(cfg.bias_timeframe, cfg.live_bars)
+        m30_df = self.connector.get_rates(cfg.confirm_timeframe, cfg.live_bars)
+        m15_df = self.connector.get_rates(cfg.entry_timeframe, cfg.live_bars)
+
+        states = {
+            "H1": smc.analyze(h1_df, cfg.atr_period),
+            "M30": smc.analyze(m30_df, cfg.atr_period),
+            "M15": smc.analyze(m15_df, cfg.atr_period),
+        }
+        tick = self.connector.get_tick(cfg.symbol)
+
+        _, buy_feat, sell_feat = build_live_features(h1_df, m30_df, m15_df, cfg)
+        buy_prob = float(self.model.predict_success_proba(buy_feat)[0])
+        sell_prob = float(self.model.predict_success_proba(sell_feat)[0])
+        decision = self.decide(states["H1"], states["M30"], states["M15"], buy_prob, sell_prob)
+
+        report = format_smc_report(cfg.symbol, states, tick)
+        report += (
+            f"\nML_BUY={buy_prob:.2f}  ML_SELL={sell_prob:.2f}  "
+            f"MIN_CONF={cfg.ml_min_confidence:.2f}  ->  DECISION={decision.action}"
+            + ("" if decision.action != "NONE" else f"  ({decision.reason})")
+        )
+        for line in report.splitlines():
+            self.log.info(line)
+        return report
+
     # -- loop drivers ------------------------------------------------------
     def run_live(self, iterations: int | None = None) -> None:
         i = 0
@@ -248,6 +283,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="smc_ml_brain", description="Python ML/SMC trading brain.")
     p.add_argument("--source", choices=["mt5", "synthetic", "csv"], default="mt5")
     p.add_argument("--once", action="store_true", help="Run a single decision cycle then exit.")
+    p.add_argument("--analyze", action="store_true",
+                   help="Print a full multi-timeframe SMC readout then exit.")
     p.add_argument("--iterations", type=int, default=None, help="Number of live cycles then exit.")
     p.add_argument("--replay", type=int, default=None, help="Replay N synthetic bars (offline demo).")
     p.add_argument("--replay-start", type=int, default=None, help="Start index for replay window.")
@@ -275,7 +312,9 @@ def main(argv: list[str] | None = None) -> int:
 
     brain = SMCBrain(cfg, connector=connector)
 
-    if args.replay is not None:
+    if args.analyze:
+        print(brain.analyze_report())
+    elif args.replay is not None:
         brain.run_replay(args.replay, start_index=args.replay_start)
     elif args.once:
         brain.run_cycle()

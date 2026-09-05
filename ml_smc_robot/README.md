@@ -1,4 +1,8 @@
-# ML + SMC Trading Robot — XAUUSDm (Gold)
+# ML + SMC Trading Robot — Volatility 75 Index
+
+Default symbol: **Volatility 75 Index** (Deriv synthetic index). The symbol is
+configurable via `config.SYMBOL_PRESETS`; **XAUUSDm (Gold)** ships as an
+alternative preset (set `SMC_SYMBOL="XAUUSDm"` or `Config(symbol="XAUUSDm")`).
 
 A two-part algorithmic trading system:
 
@@ -25,7 +29,7 @@ MT5 data → SMC detection → feature engineering → trained ML model
 | --- | --- |
 | `config.py` | All tunables (symbol, timeframes, `ML_MIN_CONFIDENCE`, risk, paths). |
 | `mt5_connector.py` | MT5 live data/execution + offline synthetic/CSV providers. |
-| `smc_detector.py` | BOS, MSS, CHoCH, order blocks, FVGs, liquidity sweeps, equal highs/lows, liquidity zones, premium/discount, swings, trend/bias, displacement, volatility. |
+| `smc_detector.py` | BOS, MSS, CHoCH, order blocks, FVGs, liquidity sweeps, **equal-liquidity sweeps** (equal highs/lows), liquidity zones, premium/discount, swings, trend/bias, displacement, volatility. |
 | `features.py` | Multi-timeframe, causal, NaN-safe feature matrix + triple-barrier labels. |
 | `ml_model.py` | LightGBM/XGBoost/RandomForest wrapper (save/load, importances, per-trade explanation). |
 | `train_model.py` | Historical training pipeline with time-ordered validation. |
@@ -49,20 +53,25 @@ the robot uses the offline synthetic/CSV providers for training and dry-runs.
 ## Quick start (offline, no terminal required)
 
 ```bash
-# 1) Train the model on offline synthetic gold data (time-ordered split)
+# 1) Train the model on offline synthetic data (time-ordered split)
 python -m ml_smc_robot.train_model --source synthetic --bars 15000
 
-# 2) Dry-run the full brain pipeline over an offline feed (writes command.json)
+# 2) Print a full multi-timeframe SMC readout (BOS/CHoCH/MSS, liquidity sweep,
+#    equal-liquidity sweep, order block, FVG) for the current bar
+python -m ml_smc_robot.smc_ml_brain --source synthetic --analyze
+
+# 3) Dry-run the full brain pipeline over an offline feed (writes command.json)
 python -m ml_smc_robot.smc_ml_brain --source synthetic --replay 2500
 
-# 3) Optional: render a decision chart
+# 4) Optional: render a decision chart
 python scripts/plot_robot_demo.py --out robot_demo.png
 ```
 
 ## Live usage (Windows + MetaTrader 5)
 
 1. Copy `mql5/SMC_Safety_Bridge.mq5` into `MQL5/Experts`, compile it in
-   MetaEditor, and attach it to an **XAUUSDm** chart. The EA reads/writes:
+   MetaEditor, and attach it to a **Volatility 75 Index** chart (or any symbol
+   configured in `config.py`). The EA reads/writes:
    `Common\Files\smc_bridge\command.json` and `status.json` (it opens files with
    `FILE_COMMON`).
 2. Point the brain at the same folder and train against real history, then run:

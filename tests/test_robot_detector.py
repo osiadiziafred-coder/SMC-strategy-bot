@@ -36,6 +36,34 @@ def test_premium_discount_in_unit_range():
     assert pd_series.between(0.0, 1.0).all()
 
 
+def test_liquidity_sweep_signed_and_causal():
+    df = _data()
+    sweep = smc.liquidity_sweep_series(df, 20)
+    assert set(sweep.unique()).issubset({-1, 0, 1})
+
+
+def test_equal_liquidity_sweep_detection():
+    # Build equal highs (~2.00) that then get swept, closing back below => -1.
+    price = [1.90, 2.00, 1.92, 2.00, 1.93, 2.00]
+    rows = []
+    prev = 1.88
+    for p in price:
+        rows.append([prev, max(prev, p), min(prev, p) - 0.02, p, 100, 20])
+        prev = p
+    # Sweep bar: high pierces above the equal-high level then closes below it.
+    rows.append([2.00, 2.06, 1.99, 1.95, 100, 20])
+    df = pd.DataFrame(rows, columns=["open", "high", "low", "close", "tick_volume", "spread"])
+    out = smc.equal_liquidity_sweep_series(df, lookback=6, tol_frac=0.01)
+    assert set(out.unique()).issubset({-1, 0, 1})
+    assert out.iloc[-1] == -1  # bearish equal-liquidity sweep of equal highs
+
+
+def test_analyze_state_includes_equal_liquidity_sweep():
+    df = _data()
+    state = smc.analyze(df)
+    assert state.equal_liquidity_sweep in (-1, 0, 1)
+
+
 def test_fair_value_gap_detection():
     rows = [
         [1.0, 1.05, 0.98, 1.02, 100, 20],

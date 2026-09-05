@@ -35,6 +35,7 @@ BASE_FEATURES: list[str] = [
     "m15_mss",
     "m15_choch",
     "m15_sweep",
+    "m15_eq_liq_sweep",
     "m15_ob_distance",
     "m15_fvg_distance",
     "m15_fvg_size",
@@ -61,6 +62,7 @@ DIRECTION_FEATURES: list[str] = [
     "pd_dir",
     "momentum_dir",
     "sweep_dir",
+    "eq_liq_sweep_dir",
 ]
 
 FEATURE_COLUMNS: list[str] = BASE_FEATURES + DIRECTION_FEATURES
@@ -101,6 +103,7 @@ def compute_entry_features(df: pd.DataFrame, cfg: Config) -> pd.DataFrame:
     out["m15_mss"] = smc.mss_series(df)
     out["m15_choch"] = smc.choch_series(df)
     out["m15_sweep"] = smc.liquidity_sweep_series(df)
+    out["m15_eq_liq_sweep"] = smc.equal_liquidity_sweep_series(df)
     out["m15_ob_distance"] = smc.order_block_distance_series(df) / atr_safe
     fvg_bull = smc.fvg_bullish_size(df)
     fvg_bear = smc.fvg_bearish_size(df)
@@ -175,6 +178,7 @@ def add_direction_features(base: pd.DataFrame, direction: int) -> pd.DataFrame:
     out["pd_dir"] = direction * (0.5 - out["m15_premium_discount"])
     out["momentum_dir"] = out["m15_momentum"] * direction
     out["sweep_dir"] = out["m15_sweep"] * direction
+    out["eq_liq_sweep_dir"] = out["m15_eq_liq_sweep"] * direction
     return _sanitize(out[FEATURE_COLUMNS])
 
 

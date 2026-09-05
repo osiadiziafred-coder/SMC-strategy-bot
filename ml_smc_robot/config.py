@@ -27,10 +27,46 @@ DEFAULT_LOG_DIR = PACKAGE_DIR / "logs"
 DEFAULT_BRIDGE_DIR = PROJECT_DIR / "smc_bridge"
 
 
+# ---------------------------------------------------------------------------
+# Symbol presets
+# ---------------------------------------------------------------------------
+# Per-symbol market characteristics. ``start_price``/``vol``/``spread_range`` are
+# only used by the offline synthetic feed; ``point``/``digits``/lot fields are
+# broker facts also used live (the real MT5 terminal overrides them when
+# connected). Volatility 75 Index (Deriv synthetic index) trades 24/7 with high
+# volatility; XAUUSDm is kept as an available preset.
+SYMBOL_PRESETS: dict[str, dict] = {
+    "Volatility 75 Index": {
+        "start_price": 100_000.0,
+        "vol": 0.0020,
+        "spread_range": (20.0, 60.0),
+        "point": 0.01,
+        "digits": 2,
+        "min_lot": 0.001,
+        "lot_step": 0.001,
+        "max_lot": 50.0,
+        "contract_size": 1.0,
+    },
+    "XAUUSDm": {
+        "start_price": 2_300.0,
+        "vol": 0.0011,
+        "spread_range": (18.0, 42.0),
+        "point": 0.01,
+        "digits": 2,
+        "min_lot": 0.01,
+        "lot_step": 0.01,
+        "max_lot": 100.0,
+        "contract_size": 100.0,
+    },
+}
+
+DEFAULT_SYMBOL_PRESET = SYMBOL_PRESETS["Volatility 75 Index"]
+
+
 @dataclass
 class Config:
     # --- Market -----------------------------------------------------------
-    symbol: str = "XAUUSDm"
+    symbol: str = "Volatility 75 Index"
     # Timeframe roles. Names map to MetaTrader5 constants in mt5_connector.
     bias_timeframe: str = "H1"        # major market bias
     confirm_timeframe: str = "M30"    # structure confirmation
@@ -46,7 +82,7 @@ class Config:
     model_backends: tuple[str, ...] = ("lightgbm", "xgboost", "random_forest")
     ml_min_confidence: float = 0.70   # ML_MIN_CONFIDENCE
     model_dir: Path = field(default_factory=lambda: DEFAULT_MODEL_DIR)
-    model_filename: str = "smc_xauusd_model.joblib"
+    model_filename: str = "smc_model.joblib"
 
     # Label engineering (triple-barrier). SL distance = atr * atr_sl_mult.
     label_horizon: int = 16           # bars ahead to resolve TP/SL
@@ -73,7 +109,8 @@ class Config:
     # --- Safety gates -----------------------------------------------------
     max_spread_points: float = 60.0   # reject if spread wider than this
     min_sl_distance_points: float = 50.0
-    point: float = 0.01               # XAUUSD price increment (fallback)
+    point: float = 0.01               # price increment (fallback; set from preset)
+    digits: int = 2                   # price decimal places (set from preset)
 
     # --- Bridge / heartbeat ----------------------------------------------
     bridge_dir: Path = field(default_factory=lambda: DEFAULT_BRIDGE_DIR)
@@ -91,6 +128,20 @@ class Config:
     # --- Logging ----------------------------------------------------------
     log_dir: Path = field(default_factory=lambda: DEFAULT_LOG_DIR)
     log_level: str = "INFO"
+
+    def __post_init__(self):
+        # Apply symbol-intrinsic broker facts from the preset. Environment
+        # overrides (Config.from_env) are applied afterwards and still win.
+        preset = SYMBOL_PRESETS.get(self.symbol)
+        if preset:
+            self.point = preset["point"]
+            self.digits = preset["digits"]
+            self.min_lot = preset["min_lot"]
+            self.lot_step = preset["lot_step"]
+            self.max_lot = preset["max_lot"]
+
+    def symbol_preset(self) -> dict:
+        return SYMBOL_PRESETS.get(self.symbol, DEFAULT_SYMBOL_PRESET)
 
     @property
     def model_path(self) -> Path:

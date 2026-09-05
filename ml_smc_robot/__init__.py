@@ -1,4 +1,7 @@
-"""ML + SMC trading robot for XAUUSDm (Gold).
+"""ML + SMC trading robot (default symbol: Volatility 75 Index).
+
+Symbol is configurable (see ``config.SYMBOL_PRESETS``); Volatility 75 Index and
+XAUUSDm ship as presets.
 
 A two-part system:
 

@@ -166,23 +166,44 @@ class SyntheticConnector(BaseConnector):
             return
         rng = np.random.default_rng(self.seed)
         n = self.n_m15
-        # Regime-switching drift produces realistic gold trends and ranges.
-        phase = np.linspace(0.0, 8.0 * np.pi, n)
-        drift = 0.00028 * np.sin(phase) + 0.00009 * np.sin(phase * 0.37)
-        vol = 0.0011
+        preset = self.cfg.symbol_preset()
+        start_price = preset["start_price"]
+        vol = preset["vol"]
+        spread_lo, spread_hi = preset["spread_range"]
+        # Regime-switching drift produces realistic trends and ranges. The drift
+        # amplitude is scaled with volatility (relative to a 0.0011 baseline) so
+        # the learnable trend/momentum signal keeps a comparable signal-to-noise
+        # ratio across symbols with very different volatilities (e.g. the highly
+        # volatile Volatility 75 Index vs. XAUUSDm).
+        drift_scale = vol / 0.0011
+        # ~40 trend regimes across the series. Short regimes (each ~n/40 bars)
+        # give the trend/SMC features a clear, learnable direction while keeping
+        # the drift's *integral* (its effect on the price level) bounded, so the
+        # long series does not compound into an unrealistic price.
+        phase = np.linspace(0.0, 80.0 * np.pi, n)
+        drift = (0.00060 * np.sin(phase) + 0.00020 * np.sin(phase * 0.25)) * drift_scale
         shocks = rng.normal(0.0, vol, n)
         # AR(1) momentum: returns are partly auto-correlated, so markets trend
         # and mean-revert in regimes. This gives the SMC/trend features genuine
-        # (learnable) predictive value rather than being pure noise.
+        # (learnable) predictive value rather than being pure noise. A gentle
+        # Ornstein-Uhlenbeck pull toward the starting log-price keeps the level
+        # bounded over long series (no runaway compounding) and adds a real
+        # mean-reversion signal the model can exploit (premium/discount).
         phi = 0.32
-        log_ret = np.empty(n)
-        log_ret[0] = drift[0] + shocks[0]
+        kappa = 3.0e-4
+        log_start = np.log(start_price)
+        logp = np.empty(n)
+        logp[0] = log_start
+        lr_prev = drift[0] + shocks[0]
         for t in range(1, n):
-            log_ret[t] = phi * log_ret[t - 1] + drift[t] + shocks[t]
-        close = 2300.0 * np.exp(np.cumsum(log_ret))
+            pull = -kappa * (logp[t - 1] - log_start)
+            lr = phi * lr_prev + drift[t] + pull + shocks[t]
+            logp[t] = logp[t - 1] + lr
+            lr_prev = lr
+        close = np.exp(logp)
 
         open_ = np.empty(n)
-        open_[0] = 2300.0
+        open_[0] = start_price
         open_[1:] = close[:-1]
         body_hi = np.maximum(open_, close)
         body_lo = np.minimum(open_, close)
@@ -191,7 +212,7 @@ class SyntheticConnector(BaseConnector):
         high = body_hi + up_wick
         low = body_lo - dn_wick
         tick_volume = rng.integers(80, 600, n).astype(float)
-        spread = np.round(rng.uniform(18, 42, n))  # points (0.18 - 0.42)
+        spread = np.round(rng.uniform(spread_lo, spread_hi, n))  # points
 
         index = pd.date_range("2023-01-01", periods=n, freq="15min", name="time")
         m15 = pd.DataFrame(
@@ -241,13 +262,14 @@ class SyntheticConnector(BaseConnector):
         return {"bid": bid, "ask": ask, "spread_points": spread_points, "time": None}
 
     def symbol_info(self, symbol: str) -> dict:
+        preset = self.cfg.symbol_preset()
         return {
             "point": self.cfg.point,
-            "digits": 2,
+            "digits": self.cfg.digits,
             "volume_min": self.cfg.min_lot,
             "volume_max": self.cfg.max_lot,
             "volume_step": self.cfg.lot_step,
-            "trade_contract_size": 100.0,
+            "trade_contract_size": preset.get("contract_size", 1.0),
         }
 
     def account_info(self) -> dict:
@@ -288,13 +310,14 @@ class CSVConnector(BaseConnector):
         return {"bid": bid, "ask": bid + spread_points * self.cfg.point, "spread_points": spread_points, "time": None}
 
     def symbol_info(self, symbol: str) -> dict:
+        preset = self.cfg.symbol_preset()
         return {
             "point": self.cfg.point,
-            "digits": 2,
+            "digits": self.cfg.digits,
             "volume_min": self.cfg.min_lot,
             "volume_max": self.cfg.max_lot,
             "volume_step": self.cfg.lot_step,
-            "trade_contract_size": 100.0,
+            "trade_contract_size": preset.get("contract_size", 1.0),
         }
 
     def account_info(self) -> dict:
