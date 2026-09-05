@@ -1,8 +1,9 @@
 """Render a demonstration chart of the ML/SMC robot's decisions.
 
 Loads the trained model, evaluates the full pipeline over an offline synthetic
-XAUUSD feed and plots price with BUY/SELL command markers plus the ML
-probability stream and the confidence threshold.
+feed (the configured symbol, e.g. Volatility 75 Index) and plots price with
+BUY/SELL command markers plus the ML probability stream and the confidence
+threshold.
 
 Usage::
 
