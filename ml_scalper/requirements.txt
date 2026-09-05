@@ -1,0 +1,8 @@
+# Standalone requirements for the ML trend/pullback scalper.
+numpy>=2.1
+pandas>=2.2
+scikit-learn>=1.5
+lightgbm>=4.0
+joblib>=1.4
+matplotlib>=3.9
+MetaTrader5>=5.0.45 ; platform_system == "Windows"

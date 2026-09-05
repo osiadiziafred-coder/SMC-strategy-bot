@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smc-strategy-bot"
+version = "0.2.0"
+description = "ML trend/pullback scalper (Python brain + MQL5 safety bridge) plus SMC research tooling"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=2.1",
+    "pandas>=2.2",
+    "matplotlib>=3.9",
+    "scikit-learn>=1.5",
+    "lightgbm>=4.0",
+    "joblib>=1.4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3"]
+
+[project.scripts]
+ml-scalper = "ml_scalper.brain:main"
+ml-scalper-train = "ml_scalper.train_model:main"
+
+[tool.setuptools.packages.find]
+include = ["ml_scalper*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
