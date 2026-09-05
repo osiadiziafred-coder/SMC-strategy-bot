@@ -3,12 +3,13 @@
 Three interchangeable providers implement the same interface:
 
 * :class:`MT5Connector` - the real MetaTrader 5 terminal API (Windows). Used for
-  live trading and for downloading real historical XAUUSDm data.
+  live trading and for downloading real historical data (e.g. Volatility 75
+  Index or XAUUSDm).
 * :class:`SyntheticConnector` - a deterministic offline generator producing
-  self-consistent H1/M30/M15 gold candles (M30/H1 are aggregated from M15 so the
-  multi-timeframe relationships are real). Enables training and dry-run testing
-  without a terminal.
-* :class:`CSVConnector` - reads previously exported ``XAUUSDm_<TF>.csv`` files.
+  self-consistent H1/M30/M15 candles (M30/H1 are aggregated from M15 so the
+  multi-timeframe relationships are real), parametrised per symbol preset.
+  Enables training and dry-run testing without a terminal.
+* :class:`CSVConnector` - reads previously exported ``<symbol>_<TF>.csv`` files.
 
 The brain and trainer depend only on the interface, so the same code path runs
 live against MT5 or offline against synthetic/CSV data.

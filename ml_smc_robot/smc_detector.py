@@ -1,4 +1,4 @@
-"""Smart Money Concepts (SMC) detection for XAUUSD multi-timeframe analysis.
+"""Smart Money Concepts (SMC) detection for multi-timeframe analysis.
 
 This module provides two complementary APIs:
 

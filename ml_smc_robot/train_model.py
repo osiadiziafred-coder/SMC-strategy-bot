@@ -2,7 +2,7 @@
 
 Steps (matching the spec):
 
-1. Read historical XAUUSDm data from MT5 (or an offline provider for testing).
+1. Read historical data from MT5 (or an offline provider for testing).
 2. Generate SMC features.
 3. Create triple-barrier training labels (BUY and SELL).
 4. Train a real ML model (LightGBM / XGBoost / RandomForest).
