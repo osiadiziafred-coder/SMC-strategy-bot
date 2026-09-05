@@ -1,5 +1,16 @@
 # SMC-strategy-bot
 
+This repository contains two related Smart Money Concepts (SMC) projects:
+
+- **`ml_smc_robot/`** — a full **ML + SMC trading robot for the Volatility 75 Index**
+  (XAUUSDm also supported) that connects to MetaTrader 5, runs a trained
+  machine-learning model over multi-timeframe SMC features, and drives an MQL5
+  safety-bridge EA. See
+  [`ml_smc_robot/README.md`](ml_smc_robot/README.md).
+- **`src/smc_bot/`** — the standalone SMC backtesting bot documented below.
+
+---
+
 A small, self-contained **Smart Money Concepts (SMC)** forex strategy
 backtesting bot written in Python. It detects market structure (swing points,
 Break of Structure and Change of Character), locates **order blocks** and
