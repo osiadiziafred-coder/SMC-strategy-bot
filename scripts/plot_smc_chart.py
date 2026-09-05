@@ -83,9 +83,9 @@ def main() -> int:
 
     fig, axes = plt.subplots(2, 1, figsize=(14, 10))
     fig.patch.set_facecolor("#12151c")
-    o, h, l, c = _walk(7, 220, 184500.0, 0.004)
+    o, h, l, c = _walk(1, 220, 184500.0, 0.004)
     chat1, setup1 = _panel(axes[0], "Volatility 75 Index", o, h, l, c)
-    o, h, l, c = _walk(21, 220, 245000.0, 0.003)
+    o, h, l, c = _walk(8, 220, 245000.0, 0.003)
     chat2, setup2 = _panel(axes[1], "Volatility 50 (1s) Index", o, h, l, c)
     _, _, _, pick = pick_dual_pair_trades(setup1, setup2, require_both=True)
     fig.suptitle(
