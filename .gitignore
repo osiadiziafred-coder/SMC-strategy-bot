@@ -28,6 +28,8 @@ output/
 # ML/SMC robot runtime artifacts
 ml_smc_robot/models/
 ml_smc_robot/logs/
+models/
+logs/
 smc_bridge/
 *.joblib
 *.joblib.meta.json
