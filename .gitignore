@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Tooling
+.mypy_cache/
+.ruff_cache/
+
+# Generated output
+output/
+*.png
+!docs/**/*.png
+
+# ML scalper runtime artifacts
+ml_scalper/models/*.joblib
+ml_scalper/models/*.json
+ml_scalper/logs/
+models/
+logs/
+ml_scalper_bridge/
+smc_bridge/
+*.joblib
+*.joblib.meta.json
+
+# OS
+.DS_Store

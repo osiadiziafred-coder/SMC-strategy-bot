@@ -1,0 +1,14 @@
+# Core
+numpy>=2.1
+pandas>=2.2
+matplotlib>=3.9
+scikit-learn>=1.5
+lightgbm>=4.0
+joblib>=1.4
+
+# Windows-only MetaTrader 5 terminal API. Skipped on Linux/macOS so offline
+# training and dry-runs still work.
+MetaTrader5>=5.0.45 ; platform_system == "Windows"
+
+# Testing
+pytest>=8.3
