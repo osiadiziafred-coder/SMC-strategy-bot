@@ -1,0 +1,14 @@
+[project]
+name = "smc-strategy-bot"
+version = "3.02.0"
+description = "MQL5 Python ML SMC bridge for Volatility 75 and Volatility 50 (1s)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "matplotlib>=3.8", "numpy>=1.26"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
