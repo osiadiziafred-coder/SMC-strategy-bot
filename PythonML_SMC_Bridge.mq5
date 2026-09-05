@@ -1,6 +1,6 @@
 #property copyright "Python ML SMC Robot"
-#property version   "3.03"
-#property description "SMC dual-pair bot. Picks BUY/SELL when V75 and V50 (1s) both have a setup."
+#property version   "3.04"
+#property description "SMC dual-pair PRO. Trades only A+ setups (skill 85+) on V75 and V50 (1s)."
 
 //+------------------------------------------------------------------+
 //| PythonML_SMC_Bridge.mq5                                          |
@@ -62,6 +62,20 @@ input int    InpDrawMaxFvg         = 6;
 input int    InpDrawMaxOb          = 5;
 input int    InpDrawMaxEvents      = 10;
 input int    InpDrawMaxSweeps      = 8;
+input bool   InpProSkill          = true;
+input int    InpMinSkillScore     = 85;
+input ENUM_TIMEFRAMES InpBiasTf1  = PERIOD_H1;
+input ENUM_TIMEFRAMES InpBiasTf2  = PERIOD_M5;
+input double InpRiskPercent       = 0.50;
+input double InpMaxDailyLossPct   = 3.0;
+input int    InpMaxTradesPerDay   = 4;
+input double InpMinEfficiency     = 0.28;
+input double InpPdBuyMax          = 0.45;
+input double InpPdSellMin         = 0.55;
+input bool   InpRequireHtf        = true;
+input bool   InpRequirePd         = true;
+input bool   InpRequireChoChSeq   = true;
+input bool   InpRequireDisplace   = true;
 
 CTrade   trade;
 string   g_sym1 = "";
@@ -94,6 +108,9 @@ datetime g_closeTime1 = 0;
 datetime g_closeTime2 = 0;
 bool     g_hadPos1 = false;
 bool     g_hadPos2 = false;
+double   g_dayStartEquity = 0.0;
+datetime g_dayStamp = 0;
+int      g_dayTrades = 0;
 
 struct Swing
   {
@@ -160,6 +177,10 @@ struct TradeSetup
    int               zone_kind;
    bool              eq_extra;
    string            why;
+   int               skill;
+   string            missing;
+   double            pd;
+   double            er;
   };
 
 TradeSetup g_setup1;
@@ -204,6 +225,7 @@ int OnInit()
    FolderCreate(InpFolder, FILE_COMMON);
    ClearSetup(g_setup1);
    ClearSetup(g_setup2);
+   ResetDayIfNeeded();
    WriteStatus("init", 0, "ready");
    RefreshSmc(true);
    MaybeAutoTrade();
@@ -225,6 +247,7 @@ void OnDeinit(const int reason)
 
 void OnTick()
   {
+   ResetDayIfNeeded();
    ReadAndExecuteCommand();
    if(InpAutoTrade || InpProtectIfPythonLost || PythonFresh())
      {
@@ -756,6 +779,10 @@ void ClearSetup(TradeSetup &s)
    s.zone_kind = 0;
    s.eq_extra = false;
    s.why = "none";
+   s.skill = 0;
+   s.missing = "";
+   s.pd = 0.5;
+   s.er = 0.0;
   }
 
 bool PriceInZone(const double bar_low, const double bar_high, const Zone &z)
@@ -769,9 +796,169 @@ bool IsRecentIndex(const int index, const int last, const int lookback)
    return (dist >= 0 && dist <= lookback);
   }
 
+ENUM_TIMEFRAMES BiasTfFor(const string symbol)
+  {
+   if(symbol == g_sym1)
+      return InpBiasTf1;
+   return InpBiasTf2;
+  }
+
+void ResetDayIfNeeded()
+  {
+   datetime day = StringToTime(TimeToString(TimeCurrent(), TIME_DATE));
+   if(day == g_dayStamp && g_dayStartEquity > 0.0)
+      return;
+   g_dayStamp = day;
+   g_dayStartEquity = AccountInfoDouble(ACCOUNT_EQUITY);
+   g_dayTrades = 0;
+  }
+
+string DailyBlockReason()
+  {
+   if(InpMaxTradesPerDay > 0 && g_dayTrades >= InpMaxTradesPerDay)
+      return "max_trades_today";
+   if(g_dayStartEquity > 0.0 && InpMaxDailyLossPct > 0.0)
+     {
+      double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+      double loss_pct = 100.0 * (g_dayStartEquity - equity) / g_dayStartEquity;
+      if(loss_pct >= InpMaxDailyLossPct)
+         return "daily_loss_cap";
+     }
+   return "";
+  }
+
+double CalcEr(const BarSet &bars, const int period)
+  {
+   if(bars.n < period + 1 || period <= 0)
+      return 0.0;
+   double net = MathAbs(bars.c[bars.n - 1] - bars.c[bars.n - 1 - period]);
+   double path = 0.0;
+   for(int i = bars.n - period; i < bars.n; i++)
+      path += MathAbs(bars.c[i] - bars.c[i - 1]);
+   if(path <= 1e-12)
+      return 0.0;
+   return net / path;
+  }
+
+double PdRatio(const BarSet &bars, const int lookback)
+  {
+   int last = bars.n - 1;
+   if(last < 0)
+      return 0.5;
+   int start = last - lookback;
+   if(start < 0)
+      start = 0;
+   double hh = MaxOf(bars.h, start, last + 1);
+   double ll = MinOf(bars.l, start, last + 1);
+   if(hh - ll <= 1e-12)
+      return 0.5;
+   return (bars.c[last] - ll) / (hh - ll);
+  }
+
+bool PdOk(const int direction, const double ratio)
+  {
+   if(direction == DIR_BULL)
+      return (ratio <= InpPdBuyMax);
+   if(direction == DIR_BEAR)
+      return (ratio >= InpPdSellMin);
+   return false;
+  }
+
+bool ChoChAfterSweep(const Event &events[], const Sweep &sweeps[],
+                     const int bias, const int last, int &sweep_i, int &event_i)
+  {
+   sweep_i = -1;
+   event_i = -1;
+   for(int i = 0; i < ArraySize(sweeps); i++)
+     {
+      if(sweeps[i].direction != bias)
+         continue;
+      if(!IsRecentIndex(sweeps[i].index, last, InpRecentBars))
+         continue;
+      sweep_i = i;
+     }
+   if(sweep_i < 0)
+      return false;
+   for(int e = 0; e < ArraySize(events); e++)
+     {
+      if(events[e].direction != bias)
+         continue;
+      if(events[e].kind != KIND_CHOCH && events[e].kind != KIND_MSS)
+         continue;
+      if(events[e].index > sweeps[sweep_i].index &&
+         IsRecentIndex(events[e].index, last, InpRecentBars))
+        {
+         event_i = e;
+         return true;
+        }
+     }
+   return false;
+  }
+
+int SkillScore(const bool has_sweep, const bool eq_extra, const bool choch_after,
+               const bool displacement, const bool zone_tap, const bool pd_aligned,
+               const bool htf_aligned, const bool trending, string &missing)
+  {
+   int score = 0;
+   missing = "";
+   if(has_sweep)
+      score += 15;
+   else
+      missing += "sweep,";
+   if(eq_extra)
+      score += 10;
+   else
+      missing += "eq_extra,";
+   if(choch_after)
+      score += 20;
+   else
+      missing += "choch_after_sweep,";
+   if(displacement)
+      score += 10;
+   else
+      missing += "displacement,";
+   if(zone_tap)
+      score += 15;
+   else
+      missing += "ob_fvg_tap,";
+   if(pd_aligned)
+      score += 10;
+   else
+      missing += "premium_discount,";
+   if(htf_aligned)
+      score += 15;
+   else
+      missing += "htf_bias,";
+   if(trending)
+      score += 5;
+   else
+      missing += "chop,";
+   int n = StringLen(missing);
+   if(n > 0 && StringGetCharacter(missing, n - 1) == ',')
+      missing = StringSubstr(missing, 0, n - 1);
+   return score;
+  }
+
+double LotsByRisk(const string symbol, const double sl_distance)
+  {
+   if(sl_distance <= 0.0 || InpRiskPercent <= 0.0)
+      return 0.0;
+   double tick_size = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_SIZE);
+   double tick_value = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_VALUE);
+   if(tick_size <= 0.0 || tick_value <= 0.0)
+      return 0.0;
+   double risk_money = AccountInfoDouble(ACCOUNT_BALANCE) * (InpRiskPercent / 100.0);
+   double ticks = sl_distance / tick_size;
+   if(ticks <= 0.0)
+      return 0.0;
+   double lots = risk_money / (ticks * tick_value);
+   return NormalizeVolume(symbol, lots);
+  }
+
 void EvaluateSetup(const BarSet &bars, const int bias,
                    const Event &events[], const Sweep &sweeps[],
-                   const Zone &fvgs[], const Zone &obs[], TradeSetup &out)
+                   const Zone &fvgs[], const Zone &obs[],
+                   const int htf_bias, TradeSetup &out)
   {
    ClearSetup(out);
    out.direction = bias;
@@ -926,13 +1113,63 @@ void EvaluateSetup(const BarSet &bars, const int bias,
    out.confluence = score;
    out.sl = sl;
    out.tp = tp;
+
+   int sweep_i = -1;
+   int event_i = -1;
+   bool seq_ok = ChoChAfterSweep(events, sweeps, bias, last, sweep_i, event_i);
+   bool displace = false;
+   if(seq_ok && event_i >= 0)
+      displace = IsDisplacement(bars, events[event_i].index);
+   out.pd = PdRatio(bars, InpRecentBars);
+   bool pd_aligned = PdOk(bias, out.pd);
+   out.er = CalcEr(bars, 20);
+   bool trending = (out.er >= InpMinEfficiency);
+   bool htf_ok = (htf_bias == bias);
+   if(!InpRequireHtf)
+      htf_ok = true;
+   out.skill = SkillScore(have_sweep, out.eq_extra, seq_ok, displace, true,
+                          pd_aligned, htf_ok, trending, out.missing);
+
    if(score < InpMinConfluence)
      {
       out.why = "confluence_" + IntegerToString(score);
       return;
      }
+   if(InpProSkill)
+     {
+      if(InpRequireChoChSeq && !seq_ok)
+        {
+         out.why = "need_choch_after_sweep";
+         return;
+        }
+      if(InpRequireDisplace && !displace)
+        {
+         out.why = "need_displacement";
+         return;
+        }
+      if(InpRequirePd && !pd_aligned)
+        {
+         out.why = "need_premium_discount";
+         return;
+        }
+      if(InpRequireHtf && !htf_ok)
+        {
+         out.why = "htf_mismatch";
+         return;
+        }
+      if(!trending)
+        {
+         out.why = "chop";
+         return;
+        }
+      if(out.skill < InpMinSkillScore)
+        {
+         out.why = "skill_" + IntegerToString(out.skill);
+         return;
+        }
+     }
    out.valid = true;
-   out.why = reasons;
+   out.why = reasons + "+skill" + IntegerToString(out.skill);
   }
 
 double LotFor(const string symbol, const int which)
@@ -976,7 +1213,6 @@ void ExecuteSetupTrade(const string symbol, const int which, const TradeSetup &s
       return;
      }
    string action = (setup.direction == DIR_BULL ? "BUY" : "SELL");
-   double lots = LotFor(symbol, which);
    double price = (setup.direction == DIR_BULL)
                   ? SymbolInfoDouble(symbol, SYMBOL_ASK)
                   : SymbolInfoDouble(symbol, SYMBOL_BID);
@@ -998,6 +1234,13 @@ void ExecuteSetupTrade(const string symbol, const int which, const TradeSetup &s
      }
    sl = NormalizePrice(symbol, sl);
    tp = NormalizePrice(symbol, tp);
+   double lots = LotFor(symbol, which);
+   if(InpRiskPercent > 0.0)
+     {
+      double risk_lots = LotsByRisk(symbol, MathAbs(price - sl));
+      if(risk_lots > 0.0)
+         lots = risk_lots;
+     }
    string err = BrokerBlockReason(symbol, lots, sl, tp, action);
    if(err != "")
      {
@@ -1018,8 +1261,9 @@ void ExecuteSetupTrade(const string symbol, const int which, const TradeSetup &s
       price = trade.ResultPrice();
       RememberRisk(ticket, MathAbs(price - sl));
       g_lastError = "picked_" + action;
+      g_dayTrades++;
       Print("PICK ", action, " ", symbol, " lots=", lots, " sl=", sl, " tp=", tp,
-            " why=", setup.why, " confluence=", setup.confluence);
+            " why=", setup.why, " confluence=", setup.confluence, " skill=", setup.skill);
      }
    else
       g_lastError = trade.ResultRetcodeDescription();
@@ -1031,6 +1275,12 @@ void MaybeAutoTrade()
    if(!InpAutoTrade)
      {
       g_pickStatus = "auto trade off";
+      return;
+     }
+   string day_block = DailyBlockReason();
+   if(day_block != "")
+     {
+      g_pickStatus = day_block;
       return;
      }
    bool t1 = false;
@@ -1051,7 +1301,11 @@ void MaybeAutoTrade()
          t1 = true;
          t2 = true;
          direction = g_setup1.direction;
-         g_pickStatus = "PICK " + (direction == DIR_BULL ? "BUY" : "SELL") + " on both pairs";
+         int sk = g_setup1.skill;
+         if(g_setup2.skill < sk)
+            sk = g_setup2.skill;
+         g_pickStatus = "PICK " + (direction == DIR_BULL ? "BUY" : "SELL") +
+                        " on both pairs  SKILL " + IntegerToString(sk) + "/100";
         }
      }
    else
@@ -1136,12 +1390,25 @@ void RefreshSmcSymbol(const string symbol, const int which, const bool force)
    DetectFvg(bars, fvgs);
    DetectOrderBlocks(bars, events, obs);
    int bias = InferBias(bars, events);
+   int htf_bias = DIR_NONE;
+   BarSet htf;
+   if(LoadBars(symbol, BiasTfFor(symbol), htf))
+     {
+      Event he[];
+      DetectStructure(htf, he);
+      htf_bias = InferBias(htf, he);
+     }
    TradeSetup setup;
-   EvaluateSetup(bars, bias, events, sweeps, fvgs, obs, setup);
+   EvaluateSetup(bars, bias, events, sweeps, fvgs, obs, htf_bias, setup);
 
    string chat = BuildChat(symbol, bars, bias, events, sweeps, fvgs, obs);
    chat += "  SETUP: " + (setup.valid ? ("YES " + DirName(setup.direction) + " " + setup.why)
                                      : ("no (" + setup.why + ")")) + "\n";
+   chat += "  SKILL: " + IntegerToString(setup.skill) + "/100 " +
+           (setup.valid ? "PASS" : "WAIT") + "  missing " +
+           (setup.missing != "" ? setup.missing : "none") + "\n";
+   chat += "  HTF " + DirName(htf_bias) + "  PD " + DoubleToString(setup.pd, 2) +
+           "  ER " + DoubleToString(setup.er, 2) + "\n";
    string js = BuildSmcJson(symbol, bars, bias, events, sweeps, fvgs, obs);
    js += StringFormat(",\"setup\":%s,\"setup_dir\":\"%s\",\"setup_why\":\"%s\",\"confluence\":%d",
                       (setup.valid ? "true" : "false"), DirName(setup.direction),
@@ -1782,16 +2049,18 @@ void UpdateChat()
      }
    string py = PythonFresh() ? "FRESH" : "LOST";
    string pos = IntegerToString(CountOurPositions(g_sym1) + CountOurPositions(g_sym2));
-   string txt = "Python ML SMC Bridge  3.03\n";
+   string txt = "Python ML SMC Bridge  3.04  PRO SKILL " + IntegerToString(InpMinSkillScore) + "+\n";
    txt += "Symbols: " + (g_sym1 != "" ? g_sym1 : "-") + "  |  " + (g_sym2 != "" ? g_sym2 : "-") + "\n";
    txt += "Python: " + py + "   positions: " + pos + "   last: " + g_lastError + "\n";
    txt += "TRADE: " + g_pickStatus + "\n";
+   txt += "Day trades: " + IntegerToString(g_dayTrades) + "/" + IntegerToString(InpMaxTradesPerDay) +
+          "  risk " + DoubleToString(InpRiskPercent, 2) + "%\n";
    txt += "--------------------------------\n";
    txt += (g_chat1 != "" ? g_chat1 : "V75: waiting\n");
    txt += "--------------------------------\n";
    txt += (g_chat2 != "" ? g_chat2 : "V50 (1s): waiting\n");
-   txt += "Overlay: Liquidity sweep | Equal-liquidity sweep extra | Order Block | FVG | BOS | CHoCH | MSS\n";
-   txt += "Picks a trade only when both pairs have the same-direction SMC setup.";
+   txt += "A+ checklist: HTF bias | premium/discount | sweep then CHoCH/MSS | displacement | OB/FVG | not chop\n";
+   txt += "Picks only when BOTH pairs print skill " + IntegerToString(InpMinSkillScore) + "+ in the same direction.";
    Comment(txt);
   }
 
