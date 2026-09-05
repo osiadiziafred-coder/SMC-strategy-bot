@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+*.ex5
+*.ex4
+*.log
+.idea/
+.vscode/
+env/
+*.tmp
