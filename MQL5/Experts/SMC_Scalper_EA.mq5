@@ -5,15 +5,14 @@
 //+------------------------------------------------------------------+
 #property copyright "SMC Strategy Bot"
 #property link      "https://github.com/osiadiziafred-coder/SMC-strategy-bot"
-#property version   "1.00"
+#property version   "1.01"
 #property description "SMC scalper: M5 bias, liquidity sweep, M1 BOS/MSS, dynamic BE trailing"
 #property description "Designed for Volatility 100 (1s), Volatility 75 (1s), and XAUUSD"
 
 #include <Trade/Trade.mqh>
 
-//====================================================================
-// Enumerations
-//====================================================================
+#define MAX_SWINGS 64
+
 enum ENUM_TREND_DIR
   {
    TREND_NONE = 0,
@@ -31,90 +30,87 @@ enum ENUM_SETUP_STATE
 
 enum ENUM_ENTRY_MODE
   {
-   ENTRY_PULLBACK = 0,     // Wait for a small retracement after BOS/MSS
-   ENTRY_IMMEDIATE = 1     // Enter on the confirming M1 close
+   ENTRY_PULLBACK = 0,
+   ENTRY_IMMEDIATE = 1
   };
 
 enum ENUM_TP_MODE
   {
-   TP_FIXED_RR = 0,        // Fixed risk:reward (e.g. 1:2)
-   TP_NEXT_LIQUIDITY = 1,  // Next opposing M5 swing
-   TP_NEAREST = 2          // Whichever of the two is closer
+   TP_FIXED_RR = 0,
+   TP_NEXT_LIQUIDITY = 1,
+   TP_NEAREST = 2
   };
 
 enum ENUM_DISTANCE_MODE
   {
-   DIST_ATR = 0,           // Distances scale with ATR (recommended)
-   DIST_POINTS = 1         // Raw broker points
+   DIST_ATR = 0,
+   DIST_POINTS = 1
   };
 
 enum ENUM_PULLBACK_TIMEOUT
   {
-   PB_SKIP = 0,            // Cancel setup if no pullback in time
-   PB_MARKET = 1           // Enter at market if setup still valid
+   PB_SKIP = 0,
+   PB_MARKET = 1
   };
 
-//====================================================================
-// Inputs
-//====================================================================
 input group "=== Symbols ==="
-input string InpAllowedSymbols      = "XAUUSD,Volatility 100 (1s) Index,Volatility 75 (1s) Index"; // Allowed symbols (empty = any)
-input bool   InpRestrictToList      = true;   // Block EA if chart symbol is not in the list
+input string InpAllowedSymbols      = "XAUUSD,Volatility 100 (1s) Index,Volatility 75 (1s) Index";
+input bool   InpRestrictToList      = true;
 
 input group "=== Strategy timeframes ==="
-input ENUM_TIMEFRAMES InpTrendTF    = PERIOD_M5;  // Trend / liquidity timeframe
-input ENUM_TIMEFRAMES InpEntryTF    = PERIOD_M1;  // Confirmation timeframe
-input int    InpSwingStrength       = 3;          // Bars on each side to confirm a swing
-input int    InpTrendSwings         = 2;          // Swing pairs required for HH/HL or LH/LL
-input int    InpMaxSwings           = 30;         // Swings to keep in memory
-input int    InpSweepLookback       = 12;         // M1 bars to look back for a sweep
-input int    InpSetupExpiryBars     = 24;         // Cancel unconfirmed sweep after N M1 bars
+input ENUM_TIMEFRAMES InpTrendTF    = PERIOD_M5;
+input ENUM_TIMEFRAMES InpEntryTF    = PERIOD_M1;
+input int    InpSwingStrength       = 3;
+input int    InpTrendSwings         = 2;
+input int    InpMaxSwings           = 30;
+input int    InpSweepLookback       = 12;
+input int    InpSetupExpiryBars     = 24;
 
 input group "=== Entry ==="
 input ENUM_ENTRY_MODE InpEntryMode  = ENTRY_PULLBACK;
-input double InpPullbackPercent     = 33.0;       // Retrace % of the BOS impulse (10-70)
-input int    InpPullbackMaxBars     = 8;          // Max M1 bars to wait for pullback
+input double InpPullbackPercent     = 33.0;
+input int    InpPullbackMaxBars     = 8;
 input ENUM_PULLBACK_TIMEOUT InpPullbackTimeout = PB_MARKET;
-input double InpMinImpulseATR       = 0.20;       // Ignore tiny BOS moves (ATR fraction)
+input double InpMinImpulseATR       = 0.20;
 
 input group "=== Stop loss / take profit ==="
 input ENUM_TP_MODE InpTPMode        = TP_NEAREST;
-input double InpRiskReward          = 2.0;        // Target R:R when using fixed/nearest
-input double InpMinRewardRatio      = 1.2;        // Skip trade if projected R:R is below this
+input double InpRiskReward          = 2.0;
+input double InpMinRewardRatio      = 1.2;
 input ENUM_DISTANCE_MODE InpDistMode = DIST_ATR;
 input int    InpATRPeriod           = 14;
-input double InpSLBufferATR         = 0.15;       // Extra room beyond the invalidation swing
-input int    InpSLBufferPoints      = 50;         // Used if Distance mode = Points
-input bool   InpRequireSweepWick    = true;       // Sweep must wick through then close back in
+input double InpSLBufferATR         = 0.15;
+input int    InpSLBufferPoints      = 50;
+input bool   InpRequireSweepWick    = true;
 
 input group "=== Dynamic breakeven & lock ==="
 input bool   InpUseDynamicBE        = true;
-input double InpBETriggerATR        = 0.35;       // Move to BE after this much profit (ATR)
-input double InpTrailStepATR        = 0.35;       // Each extra step locks more
-input double InpTrailLockATR        = 0.35;       // Profit locked per step
-input int    InpBETriggerPoints     = 100;        // Points mode: +N -> breakeven
-input int    InpTrailStepPoints     = 100;        // Points mode: step size
-input int    InpTrailLockPoints     = 100;        // Points mode: lock size
-input int    InpBEOffsetPoints      = 2;          // Extra points beyond entry at BE (cover commission)
+input double InpBETriggerATR        = 0.35;
+input double InpTrailStepATR        = 0.35;
+input double InpTrailLockATR        = 0.35;
+input int    InpBETriggerPoints     = 100;
+input int    InpTrailStepPoints     = 100;
+input int    InpTrailLockPoints     = 100;
+input int    InpBEOffsetPoints      = 2;
 
 input group "=== Risk management ==="
-input double InpRiskPercent         = 0.5;        // Risk per trade (% of equity). 0 = use fixed lot
-input double InpFixedLot            = 0.01;       // Lot if Risk percent is 0
-input int    InpMaxOpenTrades       = 3;          // Across all symbols (this magic)
-input int    InpMaxPerSymbol        = 1;          // Open trades per symbol
-input int    InpMaxTradesPerDay     = 12;         // 0 = unlimited
-input double InpDailyLossPercent    = 3.0;        // Pause new trades after this daily loss (%). 0 = off
-input bool   InpCloseOnDailyLoss    = false;      // Also flatten positions at the daily-loss cap
-input int    InpMaxSpreadPoints     = 0;          // 0 = do not filter by spread
-input ulong  InpMaxSlippagePoints   = 30;
-input int    InpCooldownBars        = 5;          // M1 bars after a trade before a new setup
-input int    InpMagicNumber         = 100125;
+input double InpRiskPercent         = 0.5;
+input double InpFixedLot            = 0.01;
+input int    InpMaxOpenTrades       = 3;
+input int    InpMaxPerSymbol        = 1;
+input int    InpMaxTradesPerDay     = 12;
+input double InpDailyLossPercent    = 3.0;
+input bool   InpCloseOnDailyLoss    = false;
+input int    InpMaxSpreadPoints     = 0;
+input int    InpMaxSlippagePoints   = 30;
+input int    InpCooldownBars        = 5;
+input long   InpMagicNumber         = 100125;
 input string InpTradeComment        = "SMC_Scalper";
 
 input group "=== Session filter (server time) ==="
 input bool   InpUseSessionFilter    = false;
-input int    InpSessionStartHour    = 0;          // Inclusive
-input int    InpSessionEndHour      = 24;         // Exclusive. 24 = end of day
+input int    InpSessionStartHour    = 0;
+input int    InpSessionEndHour      = 24;
 
 input group "=== Display & logging ==="
 input bool   InpShowDashboard       = true;
@@ -123,15 +119,11 @@ input bool   InpLogToExperts        = true;
 input int    InpDashboardX          = 12;
 input int    InpDashboardY          = 24;
 
-//====================================================================
-// Types
-//====================================================================
 struct SwingPoint
   {
    datetime time;
    double   price;
    bool     isHigh;
-   bool     swept;
   };
 
 struct SymbolState
@@ -144,22 +136,15 @@ struct SymbolState
    datetime          lastUsedSwingTime;
    datetime          sweepTime;
    double            sweepPrice;
-   bool              sweepIsLow;     // true = SSL grab (buy setup), false = BSL grab (sell)
+   bool              sweepIsLow;
    datetime          sweepSwingTime;
    double            bosLevel;
    datetime          bosTime;
    double            impulseHigh;
    double            impulseLow;
-   double            pendingSL;
-   double            pendingTP;
    int               bosBarAge;
-   int               dayTrades;
-   int               dayKey;
   };
 
-//====================================================================
-// Globals
-//====================================================================
 CTrade         g_trade;
 SymbolState    g_state;
 int            g_dayKey = -1;
@@ -170,11 +155,6 @@ string         g_prefix;
 int            g_atrTrend = INVALID_HANDLE;
 int            g_atrEntry = INVALID_HANDLE;
 
-#define MAX_SWINGS 64
-
-//====================================================================
-// Logging
-//====================================================================
 void LogMsg(const string msg)
   {
    if(InpLogToExperts)
@@ -192,18 +172,48 @@ string TrendText(const ENUM_TREND_DIR t)
 
 string StateText(const ENUM_SETUP_STATE s)
   {
-   switch(s)
-     {
-      case STATE_WAIT_SWEEP:    return "Wait liquidity sweep";
-      case STATE_WAIT_BOS:      return "Wait M1 BOS/MSS";
-      case STATE_WAIT_PULLBACK: return "Wait pullback";
-      default:                  return "Scan market";
-     }
+   if(s == STATE_WAIT_SWEEP)
+      return "Wait liquidity sweep";
+   if(s == STATE_WAIT_BOS)
+      return "Wait M1 BOS/MSS";
+   if(s == STATE_WAIT_PULLBACK)
+      return "Wait pullback";
+   return "Scan market";
   }
 
-//====================================================================
-// Symbol / session helpers
-//====================================================================
+void InitSymbolState()
+  {
+   g_state.symbol = _Symbol;
+   g_state.trend = TREND_NONE;
+   g_state.state = STATE_IDLE;
+   g_state.lastM1Bar = 0;
+   g_state.lastTradeBar = 0;
+   g_state.lastUsedSwingTime = 0;
+   g_state.sweepTime = 0;
+   g_state.sweepPrice = 0.0;
+   g_state.sweepIsLow = false;
+   g_state.sweepSwingTime = 0;
+   g_state.bosLevel = 0.0;
+   g_state.bosTime = 0;
+   g_state.impulseHigh = 0.0;
+   g_state.impulseLow = 0.0;
+   g_state.bosBarAge = 0;
+  }
+
+int IntMax(const int a, const int b)
+  {
+   if(a > b)
+      return a;
+   return b;
+  }
+
+int IntMin(const int a, const int b)
+  {
+   if(a < b)
+      return a;
+   return b;
+  }
+
 string TrimToken(string s)
   {
    StringTrimLeft(s);
@@ -231,6 +241,7 @@ bool SessionOpen()
   {
    if(!InpUseSessionFilter)
       return true;
+
    MqlDateTime dt;
    TimeToStruct(TimeCurrent(), dt);
    int h = dt.hour;
@@ -264,7 +275,8 @@ datetime DayStartTime()
 
 bool IsNewBar(SymbolState &st)
   {
-   datetime t[1];
+   datetime t[];
+   ArraySetAsSeries(t, true);
    if(CopyTime(st.symbol, InpEntryTF, 0, 1, t) < 1)
       return false;
    if(t[0] != st.lastM1Bar)
@@ -275,13 +287,12 @@ bool IsNewBar(SymbolState &st)
    return false;
   }
 
-//====================================================================
-// Broker distances
-//====================================================================
 double PointSize(const string sym)
   {
    double p = SymbolInfoDouble(sym, SYMBOL_POINT);
-   return (p > 0.0 ? p : _Point);
+   if(p > 0.0)
+      return p;
+   return _Point;
   }
 
 double ATRFromHandle(const int handle)
@@ -298,12 +309,13 @@ double ATRFromHandle(const int handle)
 double DistToPrice(const string sym, const double atrMult, const int pointsVal)
   {
    if(InpDistMode == DIST_POINTS)
-      return pointsVal * PointSize(sym);
+      return (double)pointsVal * PointSize(sym);
+
    double atr = ATRFromHandle(g_atrTrend);
    if(atr <= 0.0)
       atr = ATRFromHandle(g_atrEntry);
    if(atr <= 0.0)
-      return pointsVal * PointSize(sym);
+      return (double)pointsVal * PointSize(sym);
    return atr * atrMult;
   }
 
@@ -311,19 +323,18 @@ int StopsLevelPoints(const string sym)
   {
    int stops = (int)SymbolInfoInteger(sym, SYMBOL_TRADE_STOPS_LEVEL);
    int freeze = (int)SymbolInfoInteger(sym, SYMBOL_TRADE_FREEZE_LEVEL);
-   int v = MathMax(stops, freeze);
-   return (v < 1 ? 1 : v);
+   int v = IntMax(stops, freeze);
+   if(v < 1)
+      return 1;
+   return v;
   }
 
-double NormalizePrice(const string sym, double price)
+double NormalizePrice(const string sym, const double price)
   {
    int digits = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
    return NormalizeDouble(price, digits);
   }
 
-//====================================================================
-// Filling / volume
-//====================================================================
 ENUM_ORDER_TYPE_FILLING DetectFilling(const string sym)
   {
    long filling = SymbolInfoInteger(sym, SYMBOL_FILLING_MODE);
@@ -336,18 +347,20 @@ ENUM_ORDER_TYPE_FILLING DetectFilling(const string sym)
 
 double NormalizeVolume(const string sym, double lot)
   {
-   double minLot  = SymbolInfoDouble(sym, SYMBOL_VOLUME_MIN);
-   double maxLot  = SymbolInfoDouble(sym, SYMBOL_VOLUME_MAX);
-   double step    = SymbolInfoDouble(sym, SYMBOL_VOLUME_STEP);
+   double minLot = SymbolInfoDouble(sym, SYMBOL_VOLUME_MIN);
+   double maxLot = SymbolInfoDouble(sym, SYMBOL_VOLUME_MAX);
+   double step = SymbolInfoDouble(sym, SYMBOL_VOLUME_STEP);
    if(step <= 0.0)
       step = 0.01;
    if(minLot <= 0.0)
       minLot = step;
-   lot = MathFloor(lot / step + 1e-8) * step;
+
+   lot = MathFloor(lot / step + 0.00000001) * step;
    if(lot < minLot)
       lot = minLot;
    if(lot > maxLot)
       lot = maxLot;
+
    int digits = 2;
    if(step < 0.01)
       digits = 3;
@@ -365,7 +378,7 @@ double CalcLot(const string sym, const double entry, const double sl)
    if(slDist <= 0.0)
       return NormalizeVolume(sym, InpFixedLot);
 
-   double tickSize  = SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_SIZE);
+   double tickSize = SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_SIZE);
    double tickValue = SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_VALUE);
    if(tickSize <= 0.0)
       tickSize = PointSize(sym);
@@ -385,29 +398,28 @@ double CalcLot(const string sym, const double entry, const double sl)
       return NormalizeVolume(sym, InpFixedLot);
 
    double riskMoney = AccountInfoDouble(ACCOUNT_EQUITY) * InpRiskPercent / 100.0;
-   double lot = riskMoney / moneyPerLot;
-   return NormalizeVolume(sym, lot);
+   return NormalizeVolume(sym, riskMoney / moneyPerLot);
   }
 
-//====================================================================
-// Daily P/L and position counts
-//====================================================================
 double MagicClosedPnLToday()
   {
    double pnl = 0.0;
    if(!HistorySelect(DayStartTime(), TimeCurrent()))
       return 0.0;
+
    int n = HistoryDealsTotal();
    for(int i = 0; i < n; i++)
      {
       ulong ticket = HistoryDealGetTicket(i);
       if(ticket == 0)
          continue;
-      if((long)HistoryDealGetInteger(ticket, DEAL_MAGIC) != InpMagicNumber)
+      if(HistoryDealGetInteger(ticket, DEAL_MAGIC) != InpMagicNumber)
          continue;
-      ENUM_DEAL_ENTRY entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(ticket, DEAL_ENTRY);
-      if(entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_INOUT && entry != DEAL_ENTRY_OUT_BY)
+
+      ENUM_DEAL_ENTRY entryType = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(ticket, DEAL_ENTRY);
+      if(entryType != DEAL_ENTRY_OUT && entryType != DEAL_ENTRY_INOUT && entryType != DEAL_ENTRY_OUT_BY)
          continue;
+
       pnl += HistoryDealGetDouble(ticket, DEAL_PROFIT)
              + HistoryDealGetDouble(ticket, DEAL_SWAP)
              + HistoryDealGetDouble(ticket, DEAL_COMMISSION);
@@ -418,30 +430,47 @@ double MagicClosedPnLToday()
 double MagicFloatingPnL()
   {
    double pnl = 0.0;
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   int total = PositionsTotal();
+   for(int i = total - 1; i >= 0; i--)
      {
       ulong ticket = PositionGetTicket(i);
-      if(ticket == 0 || !PositionSelectByTicket(ticket))
+      if(ticket == 0)
          continue;
-      if((long)PositionGetInteger(POSITION_MAGIC) != InpMagicNumber)
+      if(PositionGetInteger(POSITION_MAGIC) != InpMagicNumber)
          continue;
-      pnl += PositionGetDouble(POSITION_PROFIT)
-             + PositionGetDouble(POSITION_SWAP);
+      pnl += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
      }
    return pnl;
   }
 
-int CountMagicPositions(const string filterSymbol = "")
+int CountMagicPositions()
   {
    int c = 0;
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   int total = PositionsTotal();
+   for(int i = total - 1; i >= 0; i--)
      {
       ulong ticket = PositionGetTicket(i);
-      if(ticket == 0 || !PositionSelectByTicket(ticket))
+      if(ticket == 0)
          continue;
-      if((long)PositionGetInteger(POSITION_MAGIC) != InpMagicNumber)
+      if(PositionGetInteger(POSITION_MAGIC) != InpMagicNumber)
          continue;
-      if(filterSymbol != "" && PositionGetString(POSITION_SYMBOL) != filterSymbol)
+      c++;
+     }
+   return c;
+  }
+
+int CountMagicPositionsSymbol(const string filterSymbol)
+  {
+   int c = 0;
+   int total = PositionsTotal();
+   for(int i = total - 1; i >= 0; i--)
+     {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0)
+         continue;
+      if(PositionGetInteger(POSITION_MAGIC) != InpMagicNumber)
+         continue;
+      if(PositionGetString(POSITION_SYMBOL) != filterSymbol)
          continue;
       c++;
      }
@@ -453,13 +482,14 @@ int CountMagicDealsToday()
    int c = 0;
    if(!HistorySelect(DayStartTime(), TimeCurrent()))
       return 0;
+
    int n = HistoryDealsTotal();
    for(int i = 0; i < n; i++)
      {
       ulong ticket = HistoryDealGetTicket(i);
       if(ticket == 0)
          continue;
-      if((long)HistoryDealGetInteger(ticket, DEAL_MAGIC) != InpMagicNumber)
+      if(HistoryDealGetInteger(ticket, DEAL_MAGIC) != InpMagicNumber)
          continue;
       if((ENUM_DEAL_ENTRY)HistoryDealGetInteger(ticket, DEAL_ENTRY) != DEAL_ENTRY_IN)
          continue;
@@ -470,17 +500,19 @@ int CountMagicDealsToday()
 
 void CloseAllMagicPositions(const string reason)
   {
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   int total = PositionsTotal();
+   for(int i = total - 1; i >= 0; i--)
      {
       ulong ticket = PositionGetTicket(i);
-      if(ticket == 0 || !PositionSelectByTicket(ticket))
+      if(ticket == 0)
          continue;
-      if((long)PositionGetInteger(POSITION_MAGIC) != InpMagicNumber)
+      if(PositionGetInteger(POSITION_MAGIC) != InpMagicNumber)
          continue;
+
       string sym = PositionGetString(POSITION_SYMBOL);
       g_trade.SetTypeFilling(DetectFilling(sym));
       if(!g_trade.PositionClose(ticket))
-         LogMsg("Failed to close #" + IntegerToString((int)ticket) + " (" + reason + "): " + g_trade.ResultRetcodeDescription());
+         LogMsg("Failed to close #" + IntegerToString((long)ticket) + " (" + reason + "): " + g_trade.ResultRetcodeDescription());
      }
   }
 
@@ -492,8 +524,6 @@ void RefreshDailyGuard()
       g_dayKey = key;
       g_dayStartEquity = AccountInfoDouble(ACCOUNT_EQUITY);
       g_dailyLossHit = false;
-      g_state.dayKey = key;
-      g_state.dayTrades = 0;
       LogMsg("New trading day. Equity=" + DoubleToString(g_dayStartEquity, 2));
      }
 
@@ -501,7 +531,9 @@ void RefreshDailyGuard()
       return;
 
    double pnl = MagicClosedPnLToday() + MagicFloatingPnL();
-   double base = (g_dayStartEquity > 0.0 ? g_dayStartEquity : AccountInfoDouble(ACCOUNT_EQUITY));
+   double base = g_dayStartEquity;
+   if(base <= 0.0)
+      base = AccountInfoDouble(ACCOUNT_EQUITY);
    double cap = -MathAbs(base * InpDailyLossPercent / 100.0);
 
    if(pnl <= cap)
@@ -516,17 +548,18 @@ void RefreshDailyGuard()
      }
   }
 
-//====================================================================
-// Swings
-//====================================================================
 bool CopyRatesSeries(const string sym, const ENUM_TIMEFRAMES tf, const int count, MqlRates &rates[])
   {
    ArraySetAsSeries(rates, true);
    int n = CopyRates(sym, tf, 0, count, rates);
-   return (n >= count / 2 && n > InpSwingStrength * 2 + 5);
+   if(n < count / 2)
+      return false;
+   if(n <= InpSwingStrength * 2 + 5)
+      return false;
+   return true;
   }
 
-bool IsSwingHigh(const MqlRates &rates[], const int i, const int strength)
+bool IsSwingHigh(MqlRates &rates[], const int i, const int strength)
   {
    int sz = ArraySize(rates);
    if(i < strength + 1 || i + strength >= sz)
@@ -541,7 +574,7 @@ bool IsSwingHigh(const MqlRates &rates[], const int i, const int strength)
    return true;
   }
 
-bool IsSwingLow(const MqlRates &rates[], const int i, const int strength)
+bool IsSwingLow(MqlRates &rates[], const int i, const int strength)
   {
    int sz = ArraySize(rates);
    if(i < strength + 1 || i + strength >= sz)
@@ -556,32 +589,39 @@ bool IsSwingLow(const MqlRates &rates[], const int i, const int strength)
    return true;
   }
 
-int CollectSwings(const MqlRates &rates[], SwingPoint &swings[], const bool highs)
+int CollectSwings(MqlRates &rates[], SwingPoint &swings[], const bool highs)
   {
    int sz = ArraySize(rates);
-   int strength = MathMax(2, InpSwingStrength);
+   int strength = IntMax(2, InpSwingStrength);
    int count = 0;
-   int cap = MathMin(InpMaxSwings, MAX_SWINGS);
+   int cap = IntMin(InpMaxSwings, MAX_SWINGS);
    ArrayResize(swings, cap);
 
    for(int i = strength + 1; i < sz - strength && count < cap; i++)
      {
-      bool hit = highs ? IsSwingHigh(rates, i, strength) : IsSwingLow(rates, i, strength);
+      bool hit = false;
+      if(highs)
+         hit = IsSwingHigh(rates, i, strength);
+      else
+         hit = IsSwingLow(rates, i, strength);
       if(!hit)
          continue;
-      swings[count].time   = rates[i].time;
-      swings[count].price  = highs ? rates[i].high : rates[i].low;
+
+      swings[count].time = rates[i].time;
+      if(highs)
+         swings[count].price = rates[i].high;
+      else
+         swings[count].price = rates[i].low;
       swings[count].isHigh = highs;
-      swings[count].swept  = false;
       count++;
      }
    ArrayResize(swings, count);
    return count;
   }
 
-ENUM_TREND_DIR DetectTrend(const SwingPoint &highs[], const SwingPoint &lows[])
+ENUM_TREND_DIR DetectTrend(SwingPoint &highs[], SwingPoint &lows[])
   {
-   int need = MathMax(2, InpTrendSwings);
+   int need = IntMax(2, InpTrendSwings);
    if(ArraySize(highs) < need || ArraySize(lows) < need)
       return TREND_NONE;
 
@@ -591,13 +631,13 @@ ENUM_TREND_DIR DetectTrend(const SwingPoint &highs[], const SwingPoint &lows[])
    bool ll = true;
    for(int i = 0; i < need - 1; i++)
      {
-      if(!(highs[i].price > highs[i + 1].price))
+      if(highs[i].price <= highs[i + 1].price)
          hh = false;
-      if(!(lows[i].price > lows[i + 1].price))
+      if(lows[i].price <= lows[i + 1].price)
          hl = false;
-      if(!(highs[i].price < highs[i + 1].price))
+      if(highs[i].price >= highs[i + 1].price)
          lh = false;
-      if(!(lows[i].price < lows[i + 1].price))
+      if(lows[i].price >= lows[i + 1].price)
          ll = false;
      }
 
@@ -608,9 +648,10 @@ ENUM_TREND_DIR DetectTrend(const SwingPoint &highs[], const SwingPoint &lows[])
    return TREND_NONE;
   }
 
-int FindNearestSwing(const SwingPoint &swings[], const datetime beforeTime)
+int FindNearestSwing(SwingPoint &swings[], const datetime beforeTime)
   {
-   for(int i = 0; i < ArraySize(swings); i++)
+   int n = ArraySize(swings);
+   for(int i = 0; i < n; i++)
      {
       if(beforeTime <= 0 || swings[i].time < beforeTime)
          return i;
@@ -618,11 +659,8 @@ int FindNearestSwing(const SwingPoint &swings[], const datetime beforeTime)
    return -1;
   }
 
-//====================================================================
-// Liquidity sweep + BOS/MSS
-//====================================================================
-bool DetectSweep(const MqlRates &m1[],
-                 const SwingPoint &zones[],
+bool DetectSweep(MqlRates &m1[],
+                 SwingPoint &zones[],
                  const bool seekLowSweep,
                  const datetime skipSwingTime,
                  int &outZoneIndex,
@@ -630,7 +668,7 @@ bool DetectSweep(const MqlRates &m1[],
   {
    outZoneIndex = -1;
    outSweepBar = -1;
-   int look = MathMin(InpSweepLookback, ArraySize(m1) - 2);
+   int look = IntMin(InpSweepLookback, ArraySize(m1) - 2);
    if(look < 3 || ArraySize(zones) == 0)
       return false;
 
@@ -645,39 +683,57 @@ bool DetectSweep(const MqlRates &m1[],
          if(m1[i].time <= zones[z].time)
             continue;
 
-         bool pierced = seekLowSweep ? (m1[i].low < level) : (m1[i].high > level);
+         bool pierced = false;
+         if(seekLowSweep)
+            pierced = (m1[i].low < level);
+         else
+            pierced = (m1[i].high > level);
          if(!pierced)
             continue;
 
          bool closedBack = true;
          if(InpRequireSweepWick)
-            closedBack = seekLowSweep ? (m1[i].close > level) : (m1[i].close < level);
+           {
+            if(seekLowSweep)
+               closedBack = (m1[i].close > level);
+            else
+               closedBack = (m1[i].close < level);
+           }
          else
            {
             closedBack = false;
             for(int j = i; j >= 1; j--)
               {
                if(seekLowSweep && m1[j].close > level)
-                 { closedBack = true; break; }
+                 {
+                  closedBack = true;
+                  break;
+                 }
                if(!seekLowSweep && m1[j].close < level)
-                 { closedBack = true; break; }
+                 {
+                  closedBack = true;
+                  break;
+                 }
               }
            }
 
          if(!closedBack)
             continue;
 
-         // Only arm a setup when the sweep just confirmed on the last closed bar.
          int confirmBar = i;
          if(!InpRequireSweepWick)
            {
             confirmBar = 1;
-            if(!(seekLowSweep ? (m1[1].close > level) : (m1[1].close < level)))
+            if(seekLowSweep && m1[1].close <= level)
+               continue;
+            if(!seekLowSweep && m1[1].close >= level)
                continue;
            }
          else
+           {
             if(i != 1)
                continue;
+           }
 
          outZoneIndex = z;
          outSweepBar = confirmBar;
@@ -687,8 +743,8 @@ bool DetectSweep(const MqlRates &m1[],
    return false;
   }
 
-bool DetectBOS(const MqlRates &m1[],
-               const SwingPoint &oppSwings[],
+bool DetectBOS(MqlRates &m1[],
+               SwingPoint &oppSwings[],
                const datetime sweepTime,
                const bool bullish,
                double &bosLevel)
@@ -696,10 +752,14 @@ bool DetectBOS(const MqlRates &m1[],
    int idx = FindNearestSwing(oppSwings, sweepTime);
    if(idx < 0)
      {
-      // Fallback: extreme of a few M1 bars just before / at the sweep
-      double ext = bullish ? -DBL_MAX : DBL_MAX;
+      double ext = 0.0;
+      if(bullish)
+         ext = -DBL_MAX;
+      else
+         ext = DBL_MAX;
       int used = 0;
-      for(int i = 1; i < ArraySize(m1) && used < 8; i++)
+      int n = ArraySize(m1);
+      for(int i = 1; i < n && used < 8; i++)
         {
          if(m1[i].time > sweepTime)
             continue;
@@ -719,26 +779,34 @@ bool DetectBOS(const MqlRates &m1[],
    if(m1[1].time <= sweepTime)
       return false;
 
-   bool broke = bullish ? (m1[1].close > bosLevel) : (m1[1].close < bosLevel);
+   bool broke = false;
+   if(bullish)
+      broke = (m1[1].close > bosLevel);
+   else
+      broke = (m1[1].close < bosLevel);
    if(!broke)
       return false;
 
-   // Act on the breaking candle only — do not chase a BOS that already happened.
    if(ArraySize(m1) > 2 && m1[2].time > sweepTime)
      {
-      bool alreadyBroke = bullish ? (m1[2].close > bosLevel) : (m1[2].close < bosLevel);
+      bool alreadyBroke = false;
+      if(bullish)
+         alreadyBroke = (m1[2].close > bosLevel);
+      else
+         alreadyBroke = (m1[2].close < bosLevel);
       if(alreadyBroke)
          return false;
      }
    return true;
   }
 
-double NextLiquidityPrice(const SwingPoint &swings[], const double entry, const bool buy)
+double NextLiquidityPrice(SwingPoint &swings[], const double entry, const bool buy)
   {
    double best = 0.0;
    double bestDist = 0.0;
    bool have = false;
-   for(int i = 0; i < ArraySize(swings); i++)
+   int n = ArraySize(swings);
+   for(int i = 0; i < n; i++)
      {
       if(buy && swings[i].price <= entry)
          continue;
@@ -755,9 +823,6 @@ double NextLiquidityPrice(const SwingPoint &swings[], const double entry, const 
    return best;
   }
 
-//====================================================================
-// Chart drawings
-//====================================================================
 void ClearDrawings()
   {
    int total = ObjectsTotal(0, 0, -1);
@@ -773,6 +838,7 @@ void DrawHLine(const string tag, const double price, const color clr, const ENUM
   {
    if(!InpDrawLevels)
       return;
+
    string name = g_prefix + tag;
    if(ObjectFind(0, name) < 0)
      {
@@ -782,42 +848,59 @@ void DrawHLine(const string tag, const double price, const color clr, const ENUM
       ObjectSetInteger(0, name, OBJPROP_WIDTH, 1);
       ObjectSetInteger(0, name, OBJPROP_BACK, true);
       ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
      }
-   else
-      ObjectSetDouble(0, name, OBJPROP_PRICE, price);
+   ObjectSetDouble(0, name, OBJPROP_PRICE, price);
   }
 
 void UpdateDashboard()
   {
+   string name = g_prefix + "dash";
    if(!InpShowDashboard)
+     {
+      ObjectDelete(0, name);
+      Comment("");
       return;
+     }
 
    double spreadPts = (double)SymbolInfoInteger(g_state.symbol, SYMBOL_SPREAD);
    double pnl = MagicClosedPnLToday() + MagicFloatingPnL();
-   string lines =
-      "SMC Scalper  |  " + g_state.symbol + "\n" +
-      "M5 trend: " + TrendText(g_state.trend) + "\n" +
-      "State: " + StateText(g_state.state) + "\n" +
-      "Spread: " + DoubleToString(spreadPts, 0) + " pts\n" +
-      "Daily P/L: " + DoubleToString(pnl, 2) +
-      (g_dailyLossHit ? "  [DAILY STOP]" : "") + "\n" +
-      "Open trades: " + IntegerToString(CountMagicPositions()) +
-      "  Today: " + IntegerToString(CountMagicDealsToday());
+   string lines = "SMC Scalper | " + g_state.symbol
+                  + "\nM5 trend: " + TrendText(g_state.trend)
+                  + "\nState: " + StateText(g_state.state)
+                  + "\nSpread: " + DoubleToString(spreadPts, 0) + " pts"
+                  + "\nDaily P/L: " + DoubleToString(pnl, 2);
+   if(g_dailyLossHit)
+      lines += "  [DAILY STOP]";
+   lines += "\nOpen trades: " + IntegerToString(CountMagicPositions())
+            + "  Today: " + IntegerToString(CountMagicDealsToday());
 
    if(g_state.state == STATE_WAIT_BOS || g_state.state == STATE_WAIT_PULLBACK)
      {
-      string side = g_state.sweepIsLow ? "BUY SSL sweep" : "SELL BSL sweep";
+      string side = "SELL BSL sweep";
+      if(g_state.sweepIsLow)
+         side = "BUY SSL sweep";
       lines += "\n" + side + " @ " + DoubleToString(g_state.sweepPrice, (int)SymbolInfoInteger(g_state.symbol, SYMBOL_DIGITS));
      }
    if(g_state.state == STATE_WAIT_PULLBACK)
       lines += "\nBOS @ " + DoubleToString(g_state.bosLevel, (int)SymbolInfoInteger(g_state.symbol, SYMBOL_DIGITS));
 
-   Comment(lines);
+   if(ObjectFind(0, name) < 0)
+     {
+      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_LEFT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, clrWhite);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 9);
+      ObjectSetString(0, name, OBJPROP_FONT, "Arial");
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+     }
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, InpDashboardX);
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, InpDashboardY);
+   ObjectSetString(0, name, OBJPROP_TEXT, lines);
   }
 
-//====================================================================
-// Trade execution
-//====================================================================
 bool SpreadOK(const string sym)
   {
    if(InpMaxSpreadPoints <= 0)
@@ -836,14 +919,14 @@ bool RiskAllowsNewTrade(const string sym)
       return false;
    if(CountMagicPositions() >= InpMaxOpenTrades)
       return false;
-   if(CountMagicPositions(sym) >= InpMaxPerSymbol)
+   if(CountMagicPositionsSymbol(sym) >= InpMaxPerSymbol)
       return false;
    if(InpMaxTradesPerDay > 0 && CountMagicDealsToday() >= InpMaxTradesPerDay)
       return false;
    return true;
   }
 
-bool CooldownActive(const SymbolState &st)
+bool CooldownActive(SymbolState &st)
   {
    if(st.lastTradeBar <= 0 || InpCooldownBars <= 0)
       return false;
@@ -855,26 +938,37 @@ bool CooldownActive(const SymbolState &st)
 
 bool SendMarket(const string sym, const bool buy, const double lot, const double sl, const double tp)
   {
-   g_trade.SetExpertMagicNumber(InpMagicNumber);
+   g_trade.SetExpertMagicNumber((ulong)InpMagicNumber);
    g_trade.SetDeviationInPoints((uint)InpMaxSlippagePoints);
    g_trade.SetTypeFilling(DetectFilling(sym));
    g_trade.SetAsyncMode(false);
 
    double slN = NormalizePrice(sym, sl);
-   double tpN = (tp > 0.0 ? NormalizePrice(sym, tp) : 0.0);
+   double tpN = 0.0;
+   if(tp > 0.0)
+      tpN = NormalizePrice(sym, tp);
 
-   bool ok = buy ? g_trade.Buy(lot, sym, 0.0, slN, tpN, InpTradeComment)
-                 : g_trade.Sell(lot, sym, 0.0, slN, tpN, InpTradeComment);
+   bool ok = false;
+   if(buy)
+      ok = g_trade.Buy(lot, sym, 0.0, slN, tpN, InpTradeComment);
+   else
+      ok = g_trade.Sell(lot, sym, 0.0, slN, tpN, InpTradeComment);
+
    if(!ok)
      {
-      LogMsg("Order failed: " + g_trade.ResultRetcodeDescription() +
-             " retcode=" + IntegerToString((int)g_trade.ResultRetcode()));
+      LogMsg("Order failed: " + g_trade.ResultRetcodeDescription()
+             + " retcode=" + IntegerToString((long)g_trade.ResultRetcode()));
       return false;
      }
-   LogMsg((buy ? "BUY " : "SELL ") + sym +
-          " lot=" + DoubleToString(lot, 3) +
-          " sl=" + DoubleToString(slN, (int)SymbolInfoInteger(sym, SYMBOL_DIGITS)) +
-          " tp=" + DoubleToString(tpN, (int)SymbolInfoInteger(sym, SYMBOL_DIGITS)));
+
+   int digits = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
+   string side = "SELL ";
+   if(buy)
+      side = "BUY ";
+   LogMsg(side + sym
+          + " lot=" + DoubleToString(lot, 3)
+          + " sl=" + DoubleToString(slN, digits)
+          + " tp=" + DoubleToString(tpN, digits));
    return true;
   }
 
@@ -882,7 +976,7 @@ bool BuildTargets(const string sym,
                   const bool buy,
                   const double entry,
                   const double invalidation,
-                  const SwingPoint &oppZones[],
+                  SwingPoint &oppZones[],
                   double &sl,
                   double &tp)
   {
@@ -891,10 +985,9 @@ bool BuildTargets(const string sym,
       sl = invalidation - buffer;
    else
       sl = invalidation + buffer;
-
    sl = NormalizePrice(sym, sl);
 
-   double minDist = StopsLevelPoints(sym) * PointSize(sym);
+   double minDist = (double)StopsLevelPoints(sym) * PointSize(sym);
    if(MathAbs(entry - sl) < minDist)
      {
       if(buy)
@@ -908,7 +1001,10 @@ bool BuildTargets(const string sym,
    if(risk <= 0.0)
       return false;
 
-   double rrTP = buy ? (entry + risk * InpRiskReward) : (entry - risk * InpRiskReward);
+   double rrTP = entry - risk * InpRiskReward;
+   if(buy)
+      rrTP = entry + risk * InpRiskReward;
+
    double liqTP = NextLiquidityPrice(oppZones, entry, buy);
    if(liqTP > 0.0)
      {
@@ -924,123 +1020,136 @@ bool BuildTargets(const string sym,
    tp = 0.0;
    if(InpTPMode == TP_FIXED_RR)
       tp = rrTP;
+   else if(InpTPMode == TP_NEXT_LIQUIDITY)
+     {
+      if(liqTP > 0.0)
+         tp = liqTP;
+      else
+         tp = rrTP;
+     }
    else
-      if(InpTPMode == TP_NEXT_LIQUIDITY)
-         tp = (liqTP > 0.0 ? liqTP : rrTP);
+     {
+      if(liqTP <= 0.0)
+         tp = rrTP;
       else
         {
-         if(liqTP <= 0.0)
-            tp = rrTP;
+         double dRR = MathAbs(rrTP - entry);
+         double dLiq = MathAbs(liqTP - entry);
+         if(dLiq <= dRR)
+            tp = liqTP;
          else
-           {
-            double dRR  = MathAbs(rrTP - entry);
-            double dLiq = MathAbs(liqTP - entry);
-            tp = (dLiq <= dRR ? liqTP : rrTP);
-           }
+            tp = rrTP;
         }
+     }
 
    tp = NormalizePrice(sym, tp);
    if(tp > 0.0 && MathAbs(tp - entry) < minDist)
       tp = NormalizePrice(sym, rrTP);
 
-   double rr = (tp > 0.0 ? MathAbs(tp - entry) / risk : InpRiskReward);
+   double rr = InpRiskReward;
+   if(tp > 0.0)
+      rr = MathAbs(tp - entry) / risk;
    if(tp > 0.0 && rr < InpMinRewardRatio)
      {
       tp = NormalizePrice(sym, rrTP);
       rr = InpRiskReward;
      }
-   if(InpMinRewardRatio > 0.0 && rr + 1e-8 < InpMinRewardRatio)
+   if(InpMinRewardRatio > 0.0 && rr + 0.00000001 < InpMinRewardRatio)
       return false;
 
    return true;
   }
 
-//====================================================================
-// Dynamic breakeven / lock-in trailing
-//====================================================================
 void ManageOpenPositions()
   {
    if(!InpUseDynamicBE)
       return;
 
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   int total = PositionsTotal();
+   for(int i = total - 1; i >= 0; i--)
      {
       ulong ticket = PositionGetTicket(i);
-      if(ticket == 0 || !PositionSelectByTicket(ticket))
+      if(ticket == 0)
          continue;
-      if((long)PositionGetInteger(POSITION_MAGIC) != InpMagicNumber)
+      if(PositionGetInteger(POSITION_MAGIC) != InpMagicNumber)
          continue;
 
       string sym = PositionGetString(POSITION_SYMBOL);
       long type = PositionGetInteger(POSITION_TYPE);
-      double open = PositionGetDouble(POSITION_PRICE_OPEN);
+      double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
       double sl = PositionGetDouble(POSITION_SL);
       double tp = PositionGetDouble(POSITION_TP);
       double bid = SymbolInfoDouble(sym, SYMBOL_BID);
       double ask = SymbolInfoDouble(sym, SYMBOL_ASK);
       double pt = PointSize(sym);
-
       bool buy = (type == POSITION_TYPE_BUY);
-      double price = buy ? bid : ask;
-      double profitDist = buy ? (price - open) : (open - price);
+
+      double price = ask;
+      double profitDist = openPrice - price;
+      if(buy)
+        {
+         price = bid;
+         profitDist = price - openPrice;
+        }
       if(profitDist <= 0.0)
          continue;
 
       double beTrig = DistToPrice(sym, InpBETriggerATR, InpBETriggerPoints);
-      double step   = DistToPrice(sym, InpTrailStepATR, InpTrailStepPoints);
-      double lock   = DistToPrice(sym, InpTrailLockATR, InpTrailLockPoints);
+      double step = DistToPrice(sym, InpTrailStepATR, InpTrailStepPoints);
+      double lock = DistToPrice(sym, InpTrailLockATR, InpTrailLockPoints);
       if(beTrig <= 0.0)
          continue;
 
       double newSL = sl;
-      double beOffset = InpBEOffsetPoints * pt;
+      double beOffset = (double)InpBEOffsetPoints * pt;
       if(profitDist >= beTrig)
         {
-         // Entry -> +BE -> breakeven; each extra step locks more profit
-         newSL = buy ? (open + beOffset) : (open - beOffset);
+         if(buy)
+            newSL = openPrice + beOffset;
+         else
+            newSL = openPrice - beOffset;
+
          if(step > 0.0 && profitDist > beTrig)
            {
-            int steps = (int)MathFloor((profitDist - beTrig) / step + 1e-8);
+            int steps = (int)MathFloor((profitDist - beTrig) / step + 0.00000001);
             if(steps > 0)
               {
-               double locked = steps * lock;
-               newSL = buy ? (open + locked) : (open - locked);
+               double locked = (double)steps * lock;
+               if(buy)
+                  newSL = openPrice + locked;
+               else
+                  newSL = openPrice - locked;
               }
            }
         }
 
       newSL = NormalizePrice(sym, newSL);
-
-      double minDist = StopsLevelPoints(sym) * pt;
+      double minDist = (double)StopsLevelPoints(sym) * pt;
+      bool better = false;
       if(buy)
         {
          if(newSL >= bid - minDist)
             newSL = NormalizePrice(sym, bid - minDist);
-         bool better = (sl == 0.0 || newSL > sl + pt * 0.5);
-         if(!better)
-            continue;
+         if(sl == 0.0 || newSL > sl + pt * 0.5)
+            better = true;
         }
       else
         {
          if(newSL <= ask + minDist)
             newSL = NormalizePrice(sym, ask + minDist);
-         bool better = (sl == 0.0 || newSL < sl - pt * 0.5);
-         if(!better)
-            continue;
+         if(sl == 0.0 || newSL < sl - pt * 0.5)
+            better = true;
         }
+      if(!better)
+         continue;
 
-      g_trade.SetExpertMagicNumber(InpMagicNumber);
+      g_trade.SetExpertMagicNumber((ulong)InpMagicNumber);
       g_trade.SetTypeFilling(DetectFilling(sym));
       if(!g_trade.PositionModify(ticket, newSL, tp))
-        {
-         // Silent retry next tick — freeze-level / requote is common
-        }
+         continue;
      }
   }
 
-//====================================================================
-// Core per-bar strategy
-//====================================================================
 void ResetSetup(SymbolState &st)
   {
    st.state = STATE_WAIT_SWEEP;
@@ -1050,13 +1159,11 @@ void ResetSetup(SymbolState &st)
    st.bosTime = 0;
    st.impulseHigh = 0.0;
    st.impulseLow = 0.0;
-   st.pendingSL = 0.0;
-   st.pendingTP = 0.0;
    st.bosBarAge = 0;
   }
 
 void TryEnter(SymbolState &st, const bool buy, const double slInvalidation,
-              const SwingPoint &oppZones[], const MqlRates &m1[])
+              SwingPoint &oppZones[], MqlRates &m1[])
   {
    if(g_entryInFlight)
       return;
@@ -1067,8 +1174,12 @@ void TryEnter(SymbolState &st, const bool buy, const double slInvalidation,
    if(!SymbolInfoTick(st.symbol, tick))
       return;
 
-   double entry = buy ? tick.ask : tick.bid;
-   double sl = 0.0, tp = 0.0;
+   double entry = tick.bid;
+   if(buy)
+      entry = tick.ask;
+
+   double sl = 0.0;
+   double tp = 0.0;
    if(!BuildTargets(st.symbol, buy, entry, slInvalidation, oppZones, sl, tp))
      {
       LogMsg("Skip entry: R:R or stop distance invalid");
@@ -1076,7 +1187,6 @@ void TryEnter(SymbolState &st, const bool buy, const double slInvalidation,
       return;
      }
 
-   // Impulse filter: avoid micro-structure noise
    double impulse = st.impulseHigh - st.impulseLow;
    double minImp = DistToPrice(st.symbol, InpMinImpulseATR, InpSLBufferPoints);
    if(minImp > 0.0 && impulse < minImp)
@@ -1100,20 +1210,32 @@ void TryEnter(SymbolState &st, const bool buy, const double slInvalidation,
      {
       st.lastTradeBar = m1[0].time;
       st.lastUsedSwingTime = st.sweepSwingTime;
-      st.dayTrades++;
       ResetSetup(st);
      }
   }
 
+void EnterWithTargets(SymbolState &st, const bool buy, MqlRates &m1[],
+                      SwingPoint &m5Highs[], SwingPoint &m5Lows[])
+  {
+   if(buy)
+      TryEnter(st, true, st.sweepPrice, m5Highs, m1);
+   else
+      TryEnter(st, false, st.sweepPrice, m5Lows, m1);
+  }
+
 void OnNewM1Bar(SymbolState &st)
   {
-   MqlRates m5[], m1[];
+   MqlRates m5[];
+   MqlRates m1[];
    if(!CopyRatesSeries(st.symbol, InpTrendTF, 80, m5))
       return;
    if(!CopyRatesSeries(st.symbol, InpEntryTF, 120, m1))
       return;
 
-   SwingPoint m5Highs[], m5Lows[], m1Highs[], m1Lows[];
+   SwingPoint m5Highs[];
+   SwingPoint m5Lows[];
+   SwingPoint m1Highs[];
+   SwingPoint m1Lows[];
    CollectSwings(m5, m5Highs, true);
    CollectSwings(m5, m5Lows, false);
    CollectSwings(m1, m1Highs, true);
@@ -1129,7 +1251,7 @@ void OnNewM1Bar(SymbolState &st)
          DrawHLine("liq_low", m5Lows[0].price, clrDodgerBlue, STYLE_DOT);
      }
 
-   if(CountMagicPositions(st.symbol) >= InpMaxPerSymbol)
+   if(CountMagicPositionsSymbol(st.symbol) >= InpMaxPerSymbol)
      {
       st.state = STATE_IDLE;
       return;
@@ -1145,7 +1267,6 @@ void OnNewM1Bar(SymbolState &st)
    if(CooldownActive(st))
       return;
 
-   // Expire stale sweeps
    if(st.state == STATE_WAIT_BOS || st.state == STATE_WAIT_PULLBACK)
      {
       int age = iBarShift(st.symbol, InpEntryTF, st.sweepTime, true);
@@ -1156,7 +1277,6 @@ void OnNewM1Bar(SymbolState &st)
         }
      }
 
-   // Direction is locked to M5 structure: buys only in HH/HL, sells only in LH/LL
    bool wantBuy = (st.trend == TREND_BULL);
 
    if(st.state == STATE_IDLE)
@@ -1164,7 +1284,8 @@ void OnNewM1Bar(SymbolState &st)
 
    if(st.state == STATE_WAIT_SWEEP)
      {
-      int z = -1, bar = -1;
+      int z = -1;
+      int bar = -1;
       bool found = false;
       if(wantBuy)
          found = DetectSweep(m1, m5Lows, true, st.lastUsedSwingTime, z, bar);
@@ -1174,36 +1295,56 @@ void OnNewM1Bar(SymbolState &st)
       if(found)
         {
          st.sweepIsLow = wantBuy;
-         st.sweepPrice = wantBuy ? m5Lows[z].price : m5Highs[z].price;
-         st.sweepSwingTime = wantBuy ? m5Lows[z].time : m5Highs[z].time;
+         if(wantBuy)
+           {
+            st.sweepPrice = m5Lows[z].price;
+            st.sweepSwingTime = m5Lows[z].time;
+           }
+         else
+           {
+            st.sweepPrice = m5Highs[z].price;
+            st.sweepSwingTime = m5Highs[z].time;
+           }
          st.lastUsedSwingTime = st.sweepSwingTime;
          st.sweepTime = m1[bar].time;
          st.state = STATE_WAIT_BOS;
          DrawHLine("sweep", st.sweepPrice, clrGold, STYLE_DASH);
-         LogMsg("Liquidity sweep " + (wantBuy ? "SSL (buy setup) @ " : "BSL (sell setup) @ ") +
-                DoubleToString(st.sweepPrice, (int)SymbolInfoInteger(st.symbol, SYMBOL_DIGITS)));
+         int digits = (int)SymbolInfoInteger(st.symbol, SYMBOL_DIGITS);
+         if(wantBuy)
+            LogMsg("Liquidity sweep SSL (buy setup) @ " + DoubleToString(st.sweepPrice, digits));
+         else
+            LogMsg("Liquidity sweep BSL (sell setup) @ " + DoubleToString(st.sweepPrice, digits));
         }
      }
-   else
-   if(st.state == STATE_WAIT_BOS)
+   else if(st.state == STATE_WAIT_BOS)
      {
       double bos = 0.0;
-      bool ok = DetectBOS(m1, wantBuy ? m1Highs : m1Lows, st.sweepTime, wantBuy, bos);
+      bool ok = false;
+      if(wantBuy)
+         ok = DetectBOS(m1, m1Highs, st.sweepTime, true, bos);
+      else
+         ok = DetectBOS(m1, m1Lows, st.sweepTime, false, bos);
+
       if(ok)
         {
          st.bosLevel = bos;
          st.bosTime = m1[1].time;
          st.bosBarAge = 0;
-         st.impulseHigh = wantBuy ? m1[1].high : MathMax(st.sweepPrice, m1[1].high);
-         st.impulseLow  = wantBuy ? MathMin(st.sweepPrice, m1[1].low) : m1[1].low;
-         // Capture impulse range from sweep bar through BOS bar
+         st.impulseHigh = m1[1].high;
+         st.impulseLow = m1[1].low;
+         if(wantBuy)
+            st.impulseLow = MathMin(st.sweepPrice, m1[1].low);
+         else
+            st.impulseHigh = MathMax(st.sweepPrice, m1[1].high);
+
          int sweepShift = iBarShift(st.symbol, InpEntryTF, st.sweepTime, true);
          if(sweepShift > 1)
            {
-            for(int i = 1; i <= sweepShift && i < ArraySize(m1); i++)
+            int n = ArraySize(m1);
+            for(int i = 1; i <= sweepShift && i < n; i++)
               {
                st.impulseHigh = MathMax(st.impulseHigh, m1[i].high);
-               st.impulseLow  = MathMin(st.impulseLow, m1[i].low);
+               st.impulseLow = MathMin(st.impulseLow, m1[i].low);
               }
            }
          DrawHLine("bos", st.bosLevel, clrLime, STYLE_DASH);
@@ -1211,14 +1352,13 @@ void OnNewM1Bar(SymbolState &st)
 
          if(InpEntryMode == ENTRY_IMMEDIATE)
            {
-            TryEnter(st, wantBuy, st.sweepPrice, wantBuy ? m5Highs : m5Lows, m1);
+            EnterWithTargets(st, wantBuy, m1, m5Highs, m5Lows);
             return;
            }
          st.state = STATE_WAIT_PULLBACK;
         }
      }
-   else
-   if(st.state == STATE_WAIT_PULLBACK)
+   else if(st.state == STATE_WAIT_PULLBACK)
      {
       st.bosBarAge++;
       double range = st.impulseHigh - st.impulseLow;
@@ -1229,19 +1369,30 @@ void OnNewM1Bar(SymbolState &st)
         }
 
       double pb = MathMax(10.0, MathMin(70.0, InpPullbackPercent)) / 100.0;
-      double trigger = wantBuy ? (st.impulseHigh - range * pb)
-                               : (st.impulseLow + range * pb);
+      double trigger = st.impulseLow + range * pb;
+      if(wantBuy)
+         trigger = st.impulseHigh - range * pb;
 
       MqlTick tick;
       if(!SymbolInfoTick(st.symbol, tick))
          return;
 
-      bool pulled = wantBuy ? (tick.ask <= trigger) : (tick.bid >= trigger);
-      bool stillValid = wantBuy ? (tick.bid > st.sweepPrice) : (tick.ask < st.sweepPrice);
+      bool pulled = false;
+      bool stillValid = false;
+      if(wantBuy)
+        {
+         pulled = (tick.ask <= trigger);
+         stillValid = (tick.bid > st.sweepPrice);
+        }
+      else
+        {
+         pulled = (tick.bid >= trigger);
+         stillValid = (tick.ask < st.sweepPrice);
+        }
 
       if(pulled && stillValid)
         {
-         TryEnter(st, wantBuy, st.sweepPrice, wantBuy ? m5Highs : m5Lows, m1);
+         EnterWithTargets(st, wantBuy, m1, m5Highs, m5Lows);
          return;
         }
 
@@ -1249,21 +1400,18 @@ void OnNewM1Bar(SymbolState &st)
         {
          if(InpPullbackTimeout == PB_MARKET && stillValid)
            {
-            LogMsg("Pullback timeout — entering at market");
-            TryEnter(st, wantBuy, st.sweepPrice, wantBuy ? m5Highs : m5Lows, m1);
+            LogMsg("Pullback timeout - entering at market");
+            EnterWithTargets(st, wantBuy, m1, m5Highs, m5Lows);
            }
          else
            {
-            LogMsg("Pullback timeout — setup cancelled");
+            LogMsg("Pullback timeout - setup cancelled");
             ResetSetup(st);
            }
         }
      }
   }
 
-//====================================================================
-// Event handlers
-//====================================================================
 int OnInit()
   {
    g_prefix = "SMC_" + IntegerToString(InpMagicNumber) + "_";
@@ -1281,15 +1429,12 @@ int OnInit()
       return INIT_FAILED;
      }
 
-   ZeroMemory(g_state);
-   g_state.symbol = _Symbol;
-   g_state.state = STATE_IDLE;
-   g_state.trend = TREND_NONE;
+   InitSymbolState();
 
-   g_trade.SetExpertMagicNumber(InpMagicNumber);
+   g_trade.SetExpertMagicNumber((ulong)InpMagicNumber);
    g_trade.SetDeviationInPoints((uint)InpMaxSlippagePoints);
    g_trade.SetTypeFilling(DetectFilling(_Symbol));
-   g_trade.LogLevel(LOG_LEVEL_ERRORS);
+   g_trade.SetAsyncMode(false);
 
    g_atrTrend = iATR(_Symbol, InpTrendTF, InpATRPeriod);
    g_atrEntry = iATR(_Symbol, InpEntryTF, InpATRPeriod);
@@ -1318,27 +1463,30 @@ int OnInit()
    g_dayKey = -1;
    g_entryInFlight = false;
    RefreshDailyGuard();
+   UpdateDashboard();
 
-   if(InpShowDashboard)
-      UpdateDashboard();
-
-   LogMsg("SMC Scalper initialized on " + _Symbol +
-          " | Trend TF=" + EnumToString(InpTrendTF) +
-          " Entry TF=" + EnumToString(InpEntryTF) +
-          " Magic=" + IntegerToString(InpMagicNumber));
+   LogMsg("SMC Scalper initialized on " + _Symbol
+          + " | Trend TF=" + EnumToString(InpTrendTF)
+          + " Entry TF=" + EnumToString(InpEntryTF)
+          + " Magic=" + IntegerToString(InpMagicNumber));
    return INIT_SUCCEEDED;
   }
 
 void OnDeinit(const int reason)
   {
+   LogMsg("SMC Scalper removed, reason=" + IntegerToString(reason));
    Comment("");
    ClearDrawings();
    if(g_atrTrend != INVALID_HANDLE)
+     {
       IndicatorRelease(g_atrTrend);
+      g_atrTrend = INVALID_HANDLE;
+     }
    if(g_atrEntry != INVALID_HANDLE)
+     {
       IndicatorRelease(g_atrEntry);
-   g_atrTrend = INVALID_HANDLE;
-   g_atrEntry = INVALID_HANDLE;
+      g_atrEntry = INVALID_HANDLE;
+     }
   }
 
 void OnTick()
@@ -1348,36 +1496,48 @@ void OnTick()
 
    if(IsNewBar(g_state))
       OnNewM1Bar(g_state);
-   else
-      if(g_state.state == STATE_WAIT_PULLBACK)
+   else if(g_state.state == STATE_WAIT_PULLBACK)
+     {
+      MqlRates m5[];
+      MqlRates m1[];
+      if(CopyRatesSeries(g_state.symbol, InpTrendTF, 80, m5) &&
+         CopyRatesSeries(g_state.symbol, InpEntryTF, 120, m1))
         {
-         // Pullback can complete intra-bar
-         MqlRates m5[], m1[];
-         if(CopyRatesSeries(g_state.symbol, InpTrendTF, 80, m5) &&
-            CopyRatesSeries(g_state.symbol, InpEntryTF, 120, m1))
+         SwingPoint m5Highs[];
+         SwingPoint m5Lows[];
+         CollectSwings(m5, m5Highs, true);
+         CollectSwings(m5, m5Lows, false);
+
+         bool wantBuy = (g_state.trend == TREND_BULL);
+         double range = g_state.impulseHigh - g_state.impulseLow;
+         if(range > 0.0)
            {
-            SwingPoint m5Highs[], m5Lows[];
-            CollectSwings(m5, m5Highs, true);
-            CollectSwings(m5, m5Lows, false);
-            bool wantBuy = (g_state.trend == TREND_BULL);
-            double range = g_state.impulseHigh - g_state.impulseLow;
-            if(range > 0.0)
+            double pb = MathMax(10.0, MathMin(70.0, InpPullbackPercent)) / 100.0;
+            double trigger = g_state.impulseLow + range * pb;
+            if(wantBuy)
+               trigger = g_state.impulseHigh - range * pb;
+
+            MqlTick tick;
+            if(SymbolInfoTick(g_state.symbol, tick))
               {
-               double pb = MathMax(10.0, MathMin(70.0, InpPullbackPercent)) / 100.0;
-               double trigger = wantBuy ? (g_state.impulseHigh - range * pb)
-                                        : (g_state.impulseLow + range * pb);
-               MqlTick tick;
-               if(SymbolInfoTick(g_state.symbol, tick))
+               bool pulled = false;
+               bool stillValid = false;
+               if(wantBuy)
                  {
-                  bool pulled = wantBuy ? (tick.ask <= trigger) : (tick.bid >= trigger);
-                  bool stillValid = wantBuy ? (tick.bid > g_state.sweepPrice)
-                                            : (tick.ask < g_state.sweepPrice);
-                  if(pulled && stillValid)
-                     TryEnter(g_state, wantBuy, g_state.sweepPrice, wantBuy ? m5Highs : m5Lows, m1);
+                  pulled = (tick.ask <= trigger);
+                  stillValid = (tick.bid > g_state.sweepPrice);
                  }
+               else
+                 {
+                  pulled = (tick.bid >= trigger);
+                  stillValid = (tick.ask < g_state.sweepPrice);
+                 }
+               if(pulled && stillValid)
+                  EnterWithTargets(g_state, wantBuy, m1, m5Highs, m5Lows);
               }
            }
         }
+     }
 
    static datetime lastDash = 0;
    if(TimeCurrent() != lastDash)
